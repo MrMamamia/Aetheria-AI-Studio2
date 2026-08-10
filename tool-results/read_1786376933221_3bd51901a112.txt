@@ -1,0 +1,1586 @@
+     1→'use client'
+     2→
+     3→import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+     4→import { toast } from 'sonner'
+     5→import {
+     6→  BookOpen,
+     7→  Plus,
+     8→  Search,
+     9→  Settings2,
+    10→  Trash2,
+    11→  Globe,
+    12→  Sparkles,
+    13→  KeyRound,
+    14→  Hash,
+    15→  CornerDownRight,
+    16→  Info,
+    17→  Loader2,
+    18→  ChevronRight,
+    19→} from 'lucide-react'
+    20→
+    21→import { api, useFetch } from '@/hooks/use-fetch'
+    22→import { cn } from '@/lib/utils'
+    23→import { Button } from '@/components/ui/button'
+    24→import { Input } from '@/components/ui/input'
+    25→import { Textarea } from '@/components/ui/textarea'
+    26→import { Label } from '@/components/ui/label'
+    27→import { Switch } from '@/components/ui/switch'
+    28→import { Badge } from '@/components/ui/badge'
+    29→import { Separator } from '@/components/ui/separator'
+    30→import { ScrollArea } from '@/components/ui/scroll-area'
+    31→import {
+    32→  Select,
+    33→  SelectContent,
+    34→  SelectItem,
+    35→  SelectTrigger,
+    36→  SelectValue,
+    37→} from '@/components/ui/select'
+    38→import {
+    39→  Tabs,
+    40→  TabsList,
+    41→  TabsTrigger,
+    42→} from '@/components/ui/tabs'
+    43→import {
+    44→  Tooltip,
+    45→  TooltipContent,
+    46→  TooltipTrigger,
+    47→} from '@/components/ui/tooltip'
+    48→import {
+    49→  AlertDialog,
+    50→  AlertDialogAction,
+    51→  AlertDialogCancel,
+    52→  AlertDialogContent,
+    53→  AlertDialogDescription,
+    54→  AlertDialogFooter,
+    55→  AlertDialogHeader,
+    56→  AlertDialogTitle,
+    57→  AlertDialogTrigger,
+    58→} from '@/components/ui/alert-dialog'
+    59→import {
+    60→  Dialog,
+    61→  DialogContent,
+    62→  DialogDescription,
+    63→  DialogFooter,
+    64→  DialogHeader,
+    65→  DialogTitle,
+    66→  DialogTrigger,
+    67→} from '@/components/ui/dialog'
+    68→import { Checkbox } from '@/components/ui/checkbox'
+    69→
+    70→// ============================================================
+    71→// Types
+    72→// ============================================================
+    73→
+    74→type Activation = 0 | 1 | 2 // 0=keyword, 1=constant, 2=selective
+    75→type Position = 0 | 1 | 2 // 0=before char, 1=after char, 2=at end
+    76→
+    77→interface LoreEntryT {
+    78→  id: string
+    79→  lorebookId: string
+    80→  keys: string | string[]
+    81→  aliases: string | string[]
+    82→  content: string
+    83→  comment: string | null
+    84→  enabled: boolean
+    85→  position: number
+    86→  order: number
+    87→  depth: number
+    88→  weight: number
+    89→  activation: number
+    90→  logic: string | null
+    91→  caseSensitive: boolean
+    92→  wholeWord: boolean
+    93→  createdAt: string
+    94→  updatedAt: string
+    95→}
+    96→
+    97→interface LorebookListItemT {
+    98→  id: string
+    99→  name: string
+   100→  description: string | null
+   101→  tokenBudget: number
+   102→  scanDepth: number
+   103→  enabled: boolean
+   104→  boundCharacters: string
+   105→  createdAt: string
+   106→  updatedAt: string
+   107→  _count: { entries: number }
+   108→}
+   109→
+   110→interface LorebookDetailT extends Omit<LorebookListItemT, '_count'> {
+   111→  entries: LoreEntryT[]
+   112→}
+   113→
+   114→interface CharacterT {
+   115→  id: string
+   116→  name: string
+   117→  avatar: string | null
+   118→}
+   119→
+   120→interface EntryDraft {
+   121→  id: string
+   122→  keys: string[]
+   123→  aliases: string[]
+   124→  content: string
+   125→  comment: string
+   126→  enabled: boolean
+   127→  position: number
+   128→  order: number
+   129→  depth: number
+   130→  weight: number
+   131→  activation: number
+   132→  caseSensitive: boolean
+   133→  wholeWord: boolean
+   134→}
+   135→
+   136→// ============================================================
+   137→// Helpers
+   138→// ============================================================
+   139→
+   140→function parseArr(s: string | string[] | null | undefined): string[] {
+   141→  if (Array.isArray(s)) return s.map(String)
+   142→  if (!s) return []
+   143→  try {
+   144→    const v = JSON.parse(s)
+   145→    return Array.isArray(v) ? v.map(String) : []
+   146→  } catch {
+   147→    return []
+   148→  }
+   149→}
+   150→
+   151→function joinArr(arr: string[]): string {
+   152→  return arr.join(', ')
+   153→}
+   154→
+   155→function splitArr(s: string): string[] {
+   156→  return s
+   157→    .split(',')
+   158→    .map((p) => p.trim())
+   159→    .filter(Boolean)
+   160→}
+   161→
+   162→function entryToDraft(e: LoreEntryT): EntryDraft {
+   163→  return {
+   164→    id: e.id,
+   165→    keys: parseArr(e.keys),
+   166→    aliases: parseArr(e.aliases),
+   167→    content: e.content ?? '',
+   168→    comment: e.comment ?? '',
+   169→    enabled: e.enabled,
+   170→    position: e.position,
+   171→    order: e.order,
+   172→    depth: e.depth,
+   173→    weight: e.weight,
+   174→    activation: e.activation,
+   175→    caseSensitive: e.caseSensitive,
+   176→    wholeWord: e.wholeWord,
+   177→  }
+   178→}
+   179→
+   180→function draftToPayload(d: EntryDraft) {
+   181→  return {
+   182→    keys: d.keys,
+   183→    aliases: d.aliases,
+   184→    content: d.content,
+   185→    comment: d.comment || null,
+   186→    enabled: d.enabled,
+   187→    position: d.position,
+   188→    order: d.order,
+   189→    depth: d.depth,
+   190→    weight: d.weight,
+   191→    activation: d.activation,
+   192→    caseSensitive: d.caseSensitive,
+   193→    wholeWord: d.wholeWord,
+   194→  }
+   195→}
+   196→
+   197→const ACTIVATION_LABEL: Record<number, string> = {
+   198→  0: 'Keyword',
+   199→  1: 'Constant',
+   200→  2: 'Selective',
+   201→}
+   202→
+   203→const POSITION_LABEL: Record<number, string> = {
+   204→  0: 'Before Character',
+   205→  1: 'After Character',
+   206→  2: 'At End',
+   207→}
+   208→
+   209→function activationBadgeClass(a: number): string {
+   210→  switch (a) {
+   211→    case 1:
+   212→      return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+   213→    case 2:
+   214→      return 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300'
+   215→    default:
+   216→      return 'border-border bg-muted text-muted-foreground'
+   217→  }
+   218→}
+   219→
+   220→// ============================================================
+   221→// Main component
+   222→// ============================================================
+   223→
+   224→export function LorebooksView() {
+   225→  // Lorebook list state
+   226→  const {
+   227→    data: lorebooks,
+   228→    loading: booksLoading,
+   229→    error: booksError,
+   230→    setData: setBooks,
+   231→  } = useFetch<LorebookListItemT[]>('/api/lorebooks')
+   232→
+   233→  const [search, setSearch] = useState('')
+   234→  const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
+   235→  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null)
+   236→  const [editorMode, setEditorMode] = useState<'simple' | 'advanced'>('simple')
+   237→
+   238→  // Filtered lorebook list
+   239→  const filteredBooks = useMemo(() => {
+   240→    if (!lorebooks) return []
+   241→    const q = search.trim().toLowerCase()
+   242→    if (!q) return lorebooks
+   243→    return lorebooks.filter(
+   244→      (b) =>
+   245→        b.name.toLowerCase().includes(q) ||
+   246→        (b.description ?? '').toLowerCase().includes(q),
+   247→    )
+   248→  }, [lorebooks, search])
+   249→
+   250→  // Effective selected book id — falls back to first book when the current
+   251→  // selection is missing or invalid. Derived during render (no effect) to
+   252→  // avoid cascading re-renders.
+   253→  const effectiveBookId = useMemo<string | null>(() => {
+   254→    if (!lorebooks || lorebooks.length === 0) return null
+   255→    if (selectedBookId && lorebooks.some((b) => b.id === selectedBookId)) {
+   256→      return selectedBookId
+   257→    }
+   258→    return lorebooks[0].id
+   259→  }, [lorebooks, selectedBookId])
+   260→
+   261→  // Selected lorebook detail
+   262→  const {
+   263→    data: bookDetail,
+   264→    loading: bookLoading,
+   265→    error: bookError,
+   266→    setData: setBookDetail,
+   267→  } = useFetch<LorebookDetailT>(
+   268→    effectiveBookId ? `/api/lorebooks/${effectiveBookId}` : null,
+   269→  )
+   270→
+   271→  // Effective selected entry id — falls back to first entry when invalid.
+   272→  // Derived during render so book switches don't require a state-reset effect.
+   273→  const effectiveEntryId = useMemo<string | null>(() => {
+   274→    if (!bookDetail) return null
+   275→    if (!bookDetail.entries.length) return null
+   276→    if (selectedEntryId && bookDetail.entries.some((e) => e.id === selectedEntryId)) {
+   277→      return selectedEntryId
+   278→    }
+   279→    return bookDetail.entries[0].id
+   280→  }, [bookDetail, selectedEntryId])
+   281→
+   282→  // Characters for bound-characters multi-select
+   283→  const { data: characters } = useFetch<CharacterT[]>('/api/characters')
+   284→
+   285→  // ---- Lorebook operations ----
+   286→
+   287→  const createLorebook = useCallback(async () => {
+   288→    try {
+   289→      const created = await api<LorebookListItemT>('/api/lorebooks', {
+   290→        method: 'POST',
+   291→        body: JSON.stringify({ name: 'New Lorebook' }),
+   292→      })
+   293→      setBooks((prev) => [created, ...(prev ?? [])])
+   294→      setSelectedBookId(created.id)
+   295→      toast.success('Lorebook created')
+   296→    } catch (e) {
+   297→      toast.error('Failed to create lorebook', { description: (e as Error).message })
+   298→    }
+   299→  }, [setBooks])
+   300→
+   301→  const deleteLorebook = useCallback(
+   302→    async (id: string) => {
+   303→      try {
+   304→        await api(`/api/lorebooks/${id}`, { method: 'DELETE' })
+   305→        setBooks((prev) => (prev ?? []).filter((b) => b.id !== id))
+   306→        if (selectedBookId === id) {
+   307→          setSelectedBookId(null)
+   308→          setSelectedEntryId(null)
+   309→        }
+   310→        toast.success('Lorebook deleted')
+   311→      } catch (e) {
+   312→        toast.error('Failed to delete lorebook', { description: (e as Error).message })
+   313→      }
+   314→    },
+   315→    [setBooks, selectedBookId],
+   316→  )
+   317→
+   318→  const updateLorebook = useCallback(
+   319→    async (id: string, patch: Record<string, unknown>) => {
+   320→      const updated = await api<LorebookDetailT>(`/api/lorebooks/${id}`, {
+   321→        method: 'PUT',
+   322→        body: JSON.stringify(patch),
+   323→      })
+   324→      // Update list summary (name, enabled, boundCharacters, _count)
+   325→      setBooks((prev) =>
+   326→        (prev ?? []).map((b) =>
+   327→          b.id === id
+   328→            ? {
+   329→                ...b,
+   330→                name: updated.name,
+   331→                description: updated.description,
+   332→                enabled: updated.enabled,
+   333→                boundCharacters: updated.boundCharacters,
+   334→                tokenBudget: updated.tokenBudget,
+   335→                scanDepth: updated.scanDepth,
+   336→              }
+   337→            : b,
+   338→        ),
+   339→      )
+   340→      // Update detail cache
+   341→      setBookDetail((prev) =>
+   342→        prev && prev.id === id
+   343→          ? { ...prev, ...updated, entries: prev.entries }
+   344→          : prev,
+   345→      )
+   346→      return updated
+   347→    },
+   348→    [setBooks, setBookDetail],
+   349→  )
+   350→
+   351→  const toggleBookEnabled = useCallback(
+   352→    async (book: LorebookListItemT) => {
+   353→      // Optimistic
+   354→      setBooks((prev) =>
+   355→        (prev ?? []).map((b) =>
+   356→          b.id === book.id ? { ...b, enabled: !b.enabled } : b,
+   357→        ),
+   358→      )
+   359→      try {
+   360→        await updateLorebook(book.id, { enabled: !book.enabled })
+   361→      } catch (e) {
+   362→        // Rollback
+   363→        setBooks((prev) =>
+   364→          (prev ?? []).map((b) =>
+   365→            b.id === book.id ? { ...b, enabled: book.enabled } : b,
+   366→          ),
+   367→        )
+   368→        toast.error('Failed to toggle lorebook', { description: (e as Error).message })
+   369→      }
+   370→    },
+   371→    [setBooks, updateLorebook],
+   372→  )
+   373→
+   374→  // ---- Entry operations ----
+   375→
+   376→  const createEntry = useCallback(async () => {
+   377→    if (!effectiveBookId) return
+   378→    try {
+   379→      const created = await api<LoreEntryT>(
+   380→        `/api/lorebooks/${effectiveBookId}/entries`,
+   381→        {
+   382→          method: 'POST',
+   383→          body: JSON.stringify({ keys: [], content: '' }),
+   384→        },
+   385→      )
+   386→      // Insert into detail cache at the end (server orders by order asc, createdAt asc)
+   387→      setBookDetail((prev) =>
+   388→        prev ? { ...prev, entries: [...prev.entries, created] } : prev,
+   389→      )
+   390→      setBooks((prev) =>
+   391→        (prev ?? []).map((b) =>
+   392→          b.id === effectiveBookId
+   393→            ? { ...b, _count: { entries: b._count.entries + 1 } }
+   394→            : b,
+   395→        ),
+   396→      )
+   397→      setSelectedEntryId(created.id)
+   398→      toast.success('Entry created')
+   399→    } catch (e) {
+   400→      toast.error('Failed to create entry', { description: (e as Error).message })
+   401→    }
+   402→  }, [effectiveBookId, setBookDetail, setBooks])
+   403→
+   404→  const deleteEntry = useCallback(
+   405→    async (entryId: string) => {
+   406→      if (!bookDetail) return
+   407→      try {
+   408→        await api(`/api/loreentries/${entryId}`, { method: 'DELETE' })
+   409→        const remaining = bookDetail.entries.filter((e) => e.id !== entryId)
+   410→        setBookDetail((prev) =>
+   411→          prev ? { ...prev, entries: remaining } : prev,
+   412→        )
+   413→        setBooks((prev) =>
+   414→          (prev ?? []).map((b) =>
+   415→            b.id === bookDetail.id
+   416→              ? { ...b, _count: { entries: Math.max(0, b._count.entries - 1) } }
+   417→              : b,
+   418→          ),
+   419→        )
+   420→        if (effectiveEntryId === entryId) {
+   421→          setSelectedEntryId(remaining[0]?.id ?? null)
+   422→        }
+   423→        toast.success('Entry deleted')
+   424→      } catch (e) {
+   425→        toast.error('Failed to delete entry', { description: (e as Error).message })
+   426→      }
+   427→    },
+   428→    [bookDetail, effectiveEntryId, setBookDetail, setBooks],
+   429→  )
+   430→
+   431→  const patchEntryInCache = useCallback(
+   432→    (entryId: string, patch: Partial<LoreEntryT>) => {
+   433→      setBookDetail((prev) =>
+   434→        prev
+   435→          ? {
+   436→              ...prev,
+   437→              entries: prev.entries.map((e) =>
+   438→                e.id === entryId ? ({ ...e, ...patch } as LoreEntryT) : e,
+   439→              ),
+   440→            }
+   441→          : prev,
+   442→      )
+   443→    },
+   444→    [setBookDetail],
+   445→  )
+   446→
+   447→  // Toggle an entry's enabled flag from the entry row.
+   448→  // Patches cache (so the row re-renders) and dispatches a custom event
+   449→  // so the entry editor (which holds its own draft) can stay in sync without
+   450→  // triggering a redundant save.
+   451→  const toggleEntryEnabled = useCallback(
+   452→    async (entryId: string, enabled: boolean) => {
+   453→      // Optimistic cache update
+   454→      patchEntryInCache(entryId, { enabled })
+   455→      // Notify the editor to merge into its draft (and mark as synced)
+   456→      window.dispatchEvent(
+   457→        new CustomEvent('halcyon:entry-patch', {
+   458→          detail: { id: entryId, patch: { enabled } },
+   459→        }),
+   460→      )
+   461→      try {
+   462→        await api(`/api/loreentries/${entryId}`, {
+   463→          method: 'PUT',
+   464→          body: JSON.stringify({ enabled }),
+   465→        })
+   466→      } catch (e) {
+   467→        // Rollback
+   468→        patchEntryInCache(entryId, { enabled: !enabled })
+   469→        window.dispatchEvent(
+   470→          new CustomEvent('halcyon:entry-patch', {
+   471→            detail: { id: entryId, patch: { enabled: !enabled } },
+   472→          }),
+   473→        )
+   474→        toast.error('Failed to toggle entry', { description: (e as Error).message })
+   475→      }
+   476→    },
+   477→    [patchEntryInCache],
+   478→  )
+   479→
+   480→  const selectedEntry = useMemo(
+   481→    () => bookDetail?.entries.find((e) => e.id === effectiveEntryId) ?? null,
+   482→    [bookDetail, effectiveEntryId],
+   483→  )
+   484→
+   485→  return (
+   486→    <div className="flex h-full w-full overflow-hidden bg-background">
+   487→      {/* LEFT — lorebook list */}
+   488→      <aside className="flex w-[280px] shrink-0 flex-col border-r bg-card/30">
+   489→        <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-3">
+   490→          <div className="flex items-center gap-1.5 text-sm font-medium">
+   491→            <BookOpen className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+   492→            Lorebooks
+   493→          </div>
+   494→          <Button size="sm" variant="default" className="h-7 gap-1 px-2" onClick={createLorebook}>
+   495→            <Plus className="h-3.5 w-3.5" />
+   496→            New
+   497→          </Button>
+   498→        </div>
+   499→        <div className="px-3 pb-2">
+   500→          <div className="relative">
+   501→            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+   502→            <Input
+   503→              value={search}
+   504→              onChange={(e) => setSearch(e.target.value)}
+   505→              placeholder="Search lorebooks…"
+   506→              className="h-8 pl-7 text-sm"
+   507→            />
+   508→          </div>
+   509→        </div>
+   510→        <Separator />
+   511→        <ScrollArea className="flex-1">
+   512→          <div className="flex flex-col gap-0.5 p-2">
+   513→            {booksLoading ? (
+   514→              <div className="flex items-center justify-center gap-2 p-6 text-xs text-muted-foreground">
+   515→                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+   516→                Loading…
+   517→              </div>
+   518→            ) : booksError ? (
+   519→              <div className="p-4 text-xs text-destructive">{booksError}</div>
+   520→            ) : filteredBooks.length === 0 ? (
+   521→              <EmptyState
+   522→                icon={<BookOpen className="h-6 w-6" />}
+   523→                title={search ? 'No matches' : 'No lorebooks'}
+   524→                description={
+   525→                  search
+   526→                    ? 'Try a different search.'
+   527→                    : 'Create your first lorebook to start collecting world info.'
+   528→                }
+   529→                action={
+   530→                  !search ? (
+   531→                    <Button size="sm" variant="outline" className="mt-2" onClick={createLorebook}>
+   532→                      <Plus className="h-3.5 w-3.5" />
+   533→                      New Lorebook
+   534→                    </Button>
+   535→                  ) : null
+   536→                }
+   537→              />
+   538→            ) : (
+   539→              filteredBooks.map((b) => (
+   540→                <LorebookRow
+   541→                  key={b.id}
+   542→                  book={b}
+   543→                  active={b.id === effectiveBookId}
+   544→                  onClick={() => setSelectedBookId(b.id)}
+   545→                  onToggleEnabled={() => toggleBookEnabled(b)}
+   546→                  onDelete={() => deleteLorebook(b.id)}
+   547→                />
+   548→              ))
+   549→            )}
+   550→          </div>
+   551→        </ScrollArea>
+   552→      </aside>
+   553→
+   554→      {/* MIDDLE — entry list */}
+   555→      <aside className="flex w-[360px] shrink-0 flex-col border-r bg-card/20">
+   556→        {bookLoading && !bookDetail ? (
+   557→          <div className="flex flex-1 items-center justify-center gap-2 text-xs text-muted-foreground">
+   558→            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+   559→            Loading entries…
+   560→          </div>
+   561→        ) : bookError ? (
+   562→          <div className="p-4 text-xs text-destructive">{bookError}</div>
+   563→        ) : !bookDetail ? (
+   564→          <div className="flex flex-1 items-center justify-center p-6 text-center">
+   565→            <EmptyState
+   566→              icon={<BookOpen className="h-6 w-6" />}
+   567→              title="No lorebook selected"
+   568→              description="Select a lorebook from the left, or create a new one."
+   569→            />
+   570→          </div>
+   571→        ) : (
+   572→          <EntryList
+   573→            book={bookDetail}
+   574→            characters={characters ?? []}
+   575→            selectedEntryId={effectiveEntryId}
+   576→            onSelectEntry={setSelectedEntryId}
+   577→            onNewEntry={createEntry}
+   578→            onDeleteEntry={deleteEntry}
+   579→            onToggleEntryEnabled={toggleEntryEnabled}
+   580→            onBookSettingsUpdate={updateLorebook}
+   581→          />
+   582→        )}
+   583→      </aside>
+   584→
+   585→      {/* RIGHT — entry editor */}
+   586→      <section className="flex min-w-0 flex-1 flex-col bg-background">
+   587→        {selectedEntry && bookDetail ? (
+   588→          <EntryEditor
+   589→            key={selectedEntry.id}
+   590→            entry={selectedEntry}
+   591→            mode={editorMode}
+   592→            onModeChange={setEditorMode}
+   593→            onPatchCache={patchEntryInCache}
+   594→            onDelete={deleteEntry}
+   595→          />
+   596→        ) : (
+   597→          <div className="flex flex-1 items-center justify-center p-6">
+   598→            <EmptyState
+   599→              icon={<Sparkles className="h-6 w-6" />}
+   600→              title="No entry selected"
+   601→              description="Select an entry from the middle column, or create a new one to begin editing."
+   602→            />
+   603→          </div>
+   604→        )}
+   605→      </section>
+   606→    </div>
+   607→  )
+   608→}
+   609→
+   610→// ============================================================
+   611→// Lorebook row (left column)
+   612→// ============================================================
+   613→
+   614→function LorebookRow({
+   615→  book,
+   616→  active,
+   617→  onClick,
+   618→  onToggleEnabled,
+   619→  onDelete,
+   620→}: {
+   621→  book: LorebookListItemT
+   622→  active: boolean
+   623→  onClick: () => void
+   624→  onToggleEnabled: () => void
+   625→  onDelete: () => void
+   626→}) {
+   627→  const boundIds = parseArr(book.boundCharacters)
+   628→  const isGlobal = boundIds.length === 0
+   629→
+   630→  return (
+   631→    <div
+   632→      role="button"
+   633→      tabIndex={0}
+   634→      onClick={onClick}
+   635→      onKeyDown={(e) => {
+   636→        if (e.key === 'Enter' || e.key === ' ') {
+   637→          e.preventDefault()
+   638→          onClick()
+   639→        }
+   640→      }}
+   641→      className={cn(
+   642→        'group relative flex cursor-pointer flex-col gap-1 rounded-lg border border-transparent px-2.5 py-2 text-left transition-colors',
+   643→        'hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none',
+   644→        active && 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10',
+   645→      )}
+   646→    >
+   647→      <div className="flex items-start gap-2">
+   648→        <div className="min-w-0 flex-1">
+   649→          <div className="flex items-center gap-1.5">
+   650→            <span
+   651→              className={cn(
+   652→                'truncate text-sm font-medium',
+   653→                !book.enabled && 'text-muted-foreground',
+   654→              )}
+   655→            >
+   656→              {book.name}
+   657→            </span>
+   658→            {active && (
+   659→              <ChevronRight className="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
+   660→            )}
+   661→          </div>
+   662→          <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+   663→            <span className="tabular-nums">{book._count.entries} entries</span>
+   664→            <span>·</span>
+   665→            {isGlobal ? (
+   666→              <span className="inline-flex items-center gap-0.5">
+   667→                <Globe className="h-2.5 w-2.5" />
+   668→                Global
+   669→              </span>
+   670→            ) : (
+   671→              <span className="inline-flex items-center gap-0.5">
+   672→                <Hash className="h-2.5 w-2.5" />
+   673→                {boundIds.length} bound
+   674→              </span>
+   675→            )}
+   676→          </div>
+   677→        </div>
+   678→        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+   679→          <Switch
+   680→            checked={book.enabled}
+   681→            onCheckedChange={onToggleEnabled}
+   682→            aria-label="Toggle lorebook"
+   683→          />
+   684→        </div>
+   685→      </div>
+   686→      <AlertDialog>
+   687→        <AlertDialogTrigger asChild>
+   688→          <Button
+   689→            variant="ghost"
+   690→            size="icon"
+   691→            className="absolute right-1.5 bottom-1.5 h-6 w-6 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 data-[state=open]:opacity-100"
+   692→            onClick={(e) => e.stopPropagation()}
+   693→            title="Delete lorebook"
+   694→          >
+   695→            <Trash2 className="h-3 w-3" />
+   696→          </Button>
+   697→        </AlertDialogTrigger>
+   698→        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+   699→          <AlertDialogHeader>
+   700→            <AlertDialogTitle>Delete lorebook?</AlertDialogTitle>
+   701→            <AlertDialogDescription>
+   702→              This will permanently delete <strong>{book.name}</strong> and all{' '}
+   703→              {book._count.entries} of its entries. This action cannot be undone.
+   704→            </AlertDialogDescription>
+   705→          </AlertDialogHeader>
+   706→          <AlertDialogFooter>
+   707→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   708→            <AlertDialogAction
+   709→              className="bg-destructive text-white hover:bg-destructive/90"
+   710→              onClick={onDelete}
+   711→            >
+   712→              Delete
+   713→            </AlertDialogAction>
+   714→          </AlertDialogFooter>
+   715→        </AlertDialogContent>
+   716→      </AlertDialog>
+   717→    </div>
+   718→  )
+   719→}
+   720→
+   721→// ============================================================
+   722→// Entry list (middle column)
+   723→// ============================================================
+   724→
+   725→function EntryList({
+   726→  book,
+   727→  characters,
+   728→  selectedEntryId,
+   729→  onSelectEntry,
+   730→  onNewEntry,
+   731→  onDeleteEntry,
+   732→  onToggleEntryEnabled,
+   733→  onBookSettingsUpdate,
+   734→}: {
+   735→  book: LorebookDetailT
+   736→  characters: CharacterT[]
+   737→  selectedEntryId: string | null
+   738→  onSelectEntry: (id: string) => void
+   739→  onNewEntry: () => void
+   740→  onDeleteEntry: (id: string) => void
+   741→  onToggleEntryEnabled: (id: string, enabled: boolean) => void
+   742→  onBookSettingsUpdate: (id: string, patch: Record<string, unknown>) => Promise<LorebookDetailT>
+   743→}) {
+   744→  const [settingsOpen, setSettingsOpen] = useState(false)
+   745→
+   746→  return (
+   747→    <>
+   748→      {/* Header */}
+   749→      <div className="flex flex-col gap-2 px-3 pb-2 pt-3">
+   750→        <div className="flex items-start justify-between gap-2">
+   751→          <div className="min-w-0 flex-1">
+   752→            <div className="truncate text-sm font-semibold">{book.name}</div>
+   753→            <div className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+   754→              {book.description || 'No description.'}
+   755→            </div>
+   756→          </div>
+   757→          <LorebookSettingsDialog
+   758→            book={book}
+   759→            characters={characters}
+   760→            open={settingsOpen}
+   761→            onOpenChange={setSettingsOpen}
+   762→            onSave={async (patch) => {
+   763→              try {
+   764→                await onBookSettingsUpdate(book.id, patch)
+   765→                toast.success('Lorebook updated')
+   766→                setSettingsOpen(false)
+   767→              } catch (e) {
+   768→                toast.error('Failed to update lorebook', {
+   769→                  description: (e as Error).message,
+   770→                })
+   771→              }
+   772→            }}
+   773→          />
+   774→        </div>
+   775→        <div className="flex items-center gap-1.5">
+   776→          <Button size="sm" className="h-7 flex-1 gap-1" onClick={onNewEntry}>
+   777→            <Plus className="h-3.5 w-3.5" />
+   778→            New Entry
+   779→          </Button>
+   780→        </div>
+   781→      </div>
+   782→      <Separator />
+   783→      {/* Entry rows */}
+   784→      <ScrollArea className="flex-1">
+   785→        <div className="flex flex-col gap-0.5 p-2">
+   786→          {book.entries.length === 0 ? (
+   787→            <EmptyState
+   788→              icon={<Sparkles className="h-6 w-6" />}
+   789→              title="No entries yet"
+   790→              description="Add entries with keywords to inject world info into prompts."
+   791→              action={
+   792→                <Button size="sm" variant="outline" className="mt-2" onClick={onNewEntry}>
+   793→                  <Plus className="h-3.5 w-3.5" />
+   794→                  New Entry
+   795→                </Button>
+   796→              }
+   797→            />
+   798→          ) : (
+   799→            book.entries.map((e, i) => (
+   800→              <EntryRow
+   801→                key={e.id}
+   802→                entry={e}
+   803→                index={i}
+   804→                active={e.id === selectedEntryId}
+   805→                onClick={() => onSelectEntry(e.id)}
+   806→                onDelete={() => onDeleteEntry(e.id)}
+   807→                onToggleEnabled={(checked) => onToggleEntryEnabled(e.id, checked)}
+   808→              />
+   809→            ))
+   810→          )}
+   811→        </div>
+   812→      </ScrollArea>
+   813→    </>
+   814→  )
+   815→}
+   816→
+   817→function EntryRow({
+   818→  entry,
+   819→  index,
+   820→  active,
+   821→  onClick,
+   822→  onDelete,
+   823→  onToggleEnabled,
+   824→}: {
+   825→  entry: LoreEntryT
+   826→  index: number
+   827→  active: boolean
+   828→  onClick: () => void
+   829→  onDelete: () => void
+   830→  onToggleEnabled: (checked: boolean) => void
+   831→}) {
+   832→  const keys = parseArr(entry.keys)
+   833→  const title = keys[0]?.trim() || entry.comment?.trim() || 'Untitled entry'
+   834→  const subKeys = keys.length > 1 ? `+${keys.length - 1} more` : null
+   835→  const contentPreview = entry.content
+   836→    ? entry.content.slice(0, 80) + (entry.content.length > 80 ? '…' : '')
+   837→    : 'No content'
+   838→
+   839→  return (
+   840→    <div
+   841→      role="button"
+   842→      tabIndex={0}
+   843→      onClick={onClick}
+   844→      onKeyDown={(e) => {
+   845→        if (e.key === 'Enter' || e.key === ' ') {
+   846→          e.preventDefault()
+   847→          onClick()
+   848→        }
+   849→      }}
+   850→      className={cn(
+   851→        'group relative flex cursor-pointer flex-col gap-1 rounded-lg border border-transparent px-2.5 py-2 transition-colors',
+   852→        'hover:bg-accent/50 focus-visible:bg-accent/50 focus-visible:outline-none',
+   853→        active && 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10',
+   854→        !entry.enabled && 'opacity-60',
+   855→      )}
+   856→    >
+   857→      <div className="flex items-start gap-2">
+   858→        <span className="mt-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded bg-muted px-1 text-[10px] font-medium tabular-nums text-muted-foreground">
+   859→          {index + 1}
+   860→        </span>
+   861→        <div className="min-w-0 flex-1">
+   862→          <div className="flex items-center gap-1.5">
+   863→            <KeyRound className="h-3 w-3 shrink-0 text-muted-foreground" />
+   864→            <span className="truncate text-sm font-medium">{title}</span>
+   865→          </div>
+   866→          {subKeys && (
+   867→            <div className="mt-0.5 pl-4 text-[10px] text-muted-foreground">{subKeys}</div>
+   868→          )}
+   869→          <div className="mt-0.5 line-clamp-1 pl-4 text-[11px] text-muted-foreground">
+   870→            {contentPreview}
+   871→          </div>
+   872→        </div>
+   873→        <div onClick={(e) => e.stopPropagation()}>
+   874→          <Switch
+   875→            checked={entry.enabled}
+   876→            onCheckedChange={onToggleEnabled}
+   877→            aria-label="Toggle entry"
+   878→          />
+   879→        </div>
+   880→      </div>
+   881→      <div className="flex items-center gap-1 pl-7">
+   882→        <Badge
+   883→          variant="outline"
+   884→          className={cn('h-4 px-1.5 text-[10px] font-medium', activationBadgeClass(entry.activation))}
+   885→        >
+   886→          {ACTIVATION_LABEL[entry.activation] ?? 'Keyword'}
+   887→        </Badge>
+   888→        <Badge variant="outline" className="h-4 px-1.5 text-[10px] font-medium text-muted-foreground">
+   889→          #{entry.order}
+   890→        </Badge>
+   891→        <Badge variant="outline" className="h-4 px-1.5 text-[10px] font-medium text-muted-foreground">
+   892→          {POSITION_LABEL[entry.position] ?? 'Before'}
+   893→        </Badge>
+   894→      </div>
+   895→      <AlertDialog>
+   896→        <AlertDialogTrigger asChild>
+   897→          <Button
+   898→            variant="ghost"
+   899→            size="icon"
+   900→            className="absolute right-1.5 bottom-1.5 h-6 w-6 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100 data-[state=open]:opacity-100"
+   901→            onClick={(e) => e.stopPropagation()}
+   902→            title="Delete entry"
+   903→          >
+   904→            <Trash2 className="h-3 w-3" />
+   905→          </Button>
+   906→        </AlertDialogTrigger>
+   907→        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+   908→          <AlertDialogHeader>
+   909→            <AlertDialogTitle>Delete entry?</AlertDialogTitle>
+   910→            <AlertDialogDescription>
+   911→              This will permanently delete the entry “{title}”. This action cannot be undone.
+   912→            </AlertDialogDescription>
+   913→          </AlertDialogHeader>
+   914→          <AlertDialogFooter>
+   915→            <AlertDialogCancel>Cancel</AlertDialogCancel>
+   916→            <AlertDialogAction
+   917→              className="bg-destructive text-white hover:bg-destructive/90"
+   918→              onClick={onDelete}
+   919→            >
+   920→              Delete
+   921→            </AlertDialogAction>
+   922→          </AlertDialogFooter>
+   923→        </AlertDialogContent>
+   924→      </AlertDialog>
+   925→    </div>
+   926→  )
+   927→}
+   928→
+   929→// ============================================================
+   930→// Lorebook settings dialog
+   931→// ============================================================
+   932→
+   933→function LorebookSettingsDialog({
+   934→  book,
+   935→  characters,
+   936→  open,
+   937→  onOpenChange,
+   938→  onSave,
+   939→}: {
+   940→  book: LorebookDetailT
+   941→  characters: CharacterT[]
+   942→  open: boolean
+   943→  onOpenChange: (o: boolean) => void
+   944→  onSave: (patch: Record<string, unknown>) => Promise<void>
+   945→}) {
+   946→  const [name, setName] = useState(book.name)
+   947→  const [description, setDescription] = useState(book.description ?? '')
+   948→  const [tokenBudget, setTokenBudget] = useState(String(book.tokenBudget))
+   949→  const [scanDepth, setScanDepth] = useState(String(book.scanDepth))
+   950→  const [enabled, setEnabled] = useState(book.enabled)
+   951→  const [boundIds, setBoundIds] = useState<string[]>(parseArr(book.boundCharacters))
+   952→  const [saving, setSaving] = useState(false)
+   953→
+   954→  // Re-sync when dialog opens (book may have changed elsewhere)
+   955→  useEffect(() => {
+   956→    if (open) {
+   957→      setName(book.name)
+   958→      setDescription(book.description ?? '')
+   959→      setTokenBudget(String(book.tokenBudget))
+   960→      setScanDepth(String(book.scanDepth))
+   961→      setEnabled(book.enabled)
+   962→      setBoundIds(parseArr(book.boundCharacters))
+   963→    }
+   964→  }, [open, book])
+   965→
+   966→  const toggleBound = (id: string) => {
+   967→    setBoundIds((prev) =>
+   968→      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+   969→    )
+   970→  }
+   971→
+   972→  const handleSave = async () => {
+   973→    setSaving(true)
+   974→    try {
+   975→      await onSave({
+   976→        name: name.trim() || 'Untitled Lorebook',
+   977→        description: description.trim() || null,
+   978→        tokenBudget: Number(tokenBudget) || 0,
+   979→        scanDepth: Number(scanDepth) || 0,
+   980→        enabled,
+   981→        boundCharacters: boundIds,
+   982→      })
+   983→    } finally {
+   984→      setSaving(false)
+   985→    }
+   986→  }
+   987→
+   988→  return (
+   989→    <Dialog open={open} onOpenChange={onOpenChange}>
+   990→      <DialogTrigger asChild>
+   991→        <Button variant="outline" size="sm" className="h-7 shrink-0 gap-1">
+   992→          <Settings2 className="h-3.5 w-3.5" />
+   993→          Settings
+   994→        </Button>
+   995→      </DialogTrigger>
+   996→      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[560px]">
+   997→        <DialogHeader>
+   998→          <DialogTitle>Lorebook settings</DialogTitle>
+   999→          <DialogDescription>
+  1000→            Configure how this lorebook is activated and bounded.
+  1001→          </DialogDescription>
+  1002→        </DialogHeader>
+  1003→
+  1004→        <div className="flex flex-col gap-4">
+  1005→          <div className="flex flex-col gap-1.5">
+  1006→            <Label htmlFor="lb-name">Name</Label>
+  1007→            <Input
+  1008→              id="lb-name"
+  1009→              value={name}
+  1010→              onChange={(e) => setName(e.target.value)}
+  1011→              placeholder="Lorebook name"
+  1012→            />
+  1013→          </div>
+  1014→
+  1015→          <div className="flex flex-col gap-1.5">
+  1016→            <Label htmlFor="lb-desc">Description</Label>
+  1017→            <Textarea
+  1018→              id="lb-desc"
+  1019→              value={description}
+  1020→              onChange={(e) => setDescription(e.target.value)}
+  1021→              placeholder="What is this lorebook for?"
+  1022→              className="min-h-[60px] resize-y"
+  1023→            />
+  1024→          </div>
+  1025→
+  1026→          <div className="grid grid-cols-2 gap-3">
+  1027→            <div className="flex flex-col gap-1.5">
+  1028→              <Label htmlFor="lb-tb">Token Budget</Label>
+  1029→              <Input
+  1030→                id="lb-tb"
+  1031→                type="number"
+  1032→                value={tokenBudget}
+  1033→                onChange={(e) => setTokenBudget(e.target.value)}
+  1034→                min={0}
+  1035→              />
+  1036→            </div>
+  1037→            <div className="flex flex-col gap-1.5">
+  1038→              <Label htmlFor="lb-sd">Scan Depth</Label>
+  1039→              <Input
+  1040→                id="lb-sd"
+  1041→                type="number"
+  1042→                value={scanDepth}
+  1043→                onChange={(e) => setScanDepth(e.target.value)}
+  1044→                min={0}
+  1045→              />
+  1046→            </div>
+  1047→          </div>
+  1048→
+  1049→          <div className="flex items-center justify-between rounded-lg border p-3">
+  1050→            <div className="flex flex-col">
+  1051→              <Label htmlFor="lb-enabled" className="text-sm font-medium">
+  1052→                Enabled
+  1053→              </Label>
+  1054→              <span className="text-[11px] text-muted-foreground">
+  1055→                Disabled lorebooks are never scanned or injected.
+  1056→              </span>
+  1057→            </div>
+  1058→            <Switch id="lb-enabled" checked={enabled} onCheckedChange={setEnabled} />
+  1059→          </div>
+  1060→
+  1061→          <Separator />
+  1062→
+  1063→          <div className="flex flex-col gap-1.5">
+  1064→            <div className="flex items-center justify-between">
+  1065→              <Label className="text-sm font-medium">Bound Characters</Label>
+  1066→              {boundIds.length === 0 ? (
+  1067→                <Badge variant="outline" className="gap-1 text-emerald-700 dark:text-emerald-300">
+  1068→                  <Globe className="h-3 w-3" />
+  1069→                  Global
+  1070→                </Badge>
+  1071→              ) : (
+  1072→                <Badge variant="outline" className="gap-1">
+  1073→                  <Hash className="h-3 w-3" />
+  1074→                  {boundIds.length} bound
+  1075→                </Badge>
+  1076→              )}
+  1077→            </div>
+  1078→            <p className="text-[11px] text-muted-foreground">
+  1079→              Empty = global (applies to every character). Otherwise this lorebook only
+  1080→              activates for the selected characters.
+  1081→            </p>
+  1082→            <div className="mt-1 max-h-[180px] overflow-y-auto rounded-lg border">
+  1083→              {characters.length === 0 ? (
+  1084→                <div className="p-3 text-center text-xs text-muted-foreground">
+  1085→                  No characters yet. Create one in the Characters view.
+  1086→                </div>
+  1087→              ) : (
+  1088→                <div className="divide-y">
+  1089→                  {characters.map((c) => {
+  1090→                    const checked = boundIds.includes(c.id)
+  1091→                    return (
+  1092→                      <label
+  1093→                        key={c.id}
+  1094→                        className={cn(
+  1095→                          'flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm transition-colors hover:bg-accent/50',
+  1096→                          checked && 'bg-emerald-500/5',
+  1097→                        )}
+  1098→                      >
+  1099→                        <Checkbox
+  1100→                          checked={checked}
+  1101→                          onCheckedChange={() => toggleBound(c.id)}
+  1102→                        />
+  1103→                        <span className="flex-1 truncate">{c.name}</span>
+  1104→                        {checked && (
+  1105→                          <CornerDownRight className="h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+  1106→                        )}
+  1107→                      </label>
+  1108→                    )
+  1109→                  })}
+  1110→                </div>
+  1111→              )}
+  1112→            </div>
+  1113→            {boundIds.length > 0 && (
+  1114→              <Button
+  1115→                variant="ghost"
+  1116→                size="sm"
+  1117→                className="h-7 w-fit text-xs text-muted-foreground"
+  1118→                onClick={() => setBoundIds([])}
+  1119→              >
+  1120→                Clear selection (make global)
+  1121→              </Button>
+  1122→            )}
+  1123→          </div>
+  1124→        </div>
+  1125→
+  1126→        <DialogFooter>
+  1127→          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+  1128→            Cancel
+  1129→          </Button>
+  1130→          <Button onClick={handleSave} disabled={saving}>
+  1131→            {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+  1132→            Save changes
+  1133→          </Button>
+  1134→        </DialogFooter>
+  1135→      </DialogContent>
+  1136→    </Dialog>
+  1137→  )
+  1138→}
+  1139→
+  1140→// ============================================================
+  1141→// Entry editor (right column)
+  1142→// ============================================================
+  1143→
+  1144→function EntryEditor({
+  1145→  entry,
+  1146→  mode,
+  1147→  onModeChange,
+  1148→  onPatchCache,
+  1149→  onDelete,
+  1150→}: {
+  1151→  entry: LoreEntryT
+  1152→  mode: 'simple' | 'advanced'
+  1153→  onModeChange: (m: 'simple' | 'advanced') => void
+  1154→  onPatchCache: (id: string, patch: Partial<LoreEntryT>) => void
+  1155→  onDelete: (id: string) => void
+  1156→}) {
+  1157→  const [draft, setDraft] = useState<EntryDraft>(() => entryToDraft(entry))
+  1158→  const [saving, setSaving] = useState(false)
+  1159→  const [savedAt, setSavedAt] = useState<number | null>(null)
+  1160→
+  1161→  // Refs for auto-save snapshot tracking
+  1162→  const lastSyncedRef = useRef<string>('')
+  1163→  const onPatchCacheRef = useRef(onPatchCache)
+  1164→  useEffect(() => {
+  1165→    onPatchCacheRef.current = onPatchCache
+  1166→  }, [onPatchCache])
+  1167→
+  1168→  // Listen for external patches (e.g. enabled toggle from entry row)
+  1169→  useEffect(() => {
+  1170→    function handler(e: Event) {
+  1171→      const detail = (e as CustomEvent).detail as {
+  1172→        id: string
+  1173→        patch: Partial<LoreEntryT>
+  1174→      }
+  1175→      if (detail.id !== entry.id) return
+  1176→      setDraft((prev) => {
+  1177→        const next = { ...prev, ...detail.patch }
+  1178→        lastSyncedRef.current = JSON.stringify(next)
+  1179→        return next
+  1180→      })
+  1181→    }
+  1182→    window.addEventListener('halcyon:entry-patch', handler)
+  1183→    return () => window.removeEventListener('halcyon:entry-patch', handler)
+  1184→  }, [entry.id])
+  1185→
+  1186→  // Initialize lastSyncedRef on mount / when entry id changes
+  1187→  // (resets so the first render doesn't trigger a save).
+  1188→  // draft is intentionally read here without being in deps — we only want
+  1189→  // this to run on entry switch, not on every keystroke. (exhaustive-deps is
+  1190→  // disabled project-wide.)
+  1191→  useEffect(() => {
+  1192→    lastSyncedRef.current = JSON.stringify(draft)
+  1193→  }, [entry.id])
+  1194→
+  1195→  // Auto-save with debounce (600ms) — only when draft actually changes from last synced
+  1196→  useEffect(() => {
+  1197→    const snapshot = JSON.stringify(draft)
+  1198→    if (snapshot === lastSyncedRef.current) return
+  1199→
+  1200→    const t = setTimeout(async () => {
+  1201→      setSaving(true)
+  1202→      try {
+  1203→        const saved = await api<LoreEntryT>(
+  1204→          `/api/loreentries/${draft.id}`,
+  1205→          {
+  1206→            method: 'PUT',
+  1207→            body: JSON.stringify(draftToPayload(draft)),
+  1208→          },
+  1209→        )
+  1210→        lastSyncedRef.current = JSON.stringify(draft)
+  1211→        // Update parent cache so the entry list reflects new values
+  1212→        onPatchCacheRef.current(draft.id, {
+  1213→          keys: saved.keys,
+  1214→          aliases: saved.aliases,
+  1215→          content: saved.content,
+  1216→          comment: saved.comment,
+  1217→          enabled: saved.enabled,
+  1218→          position: saved.position,
+  1219→          order: saved.order,
+  1220→          depth: saved.depth,
+  1221→          weight: saved.weight,
+  1222→          activation: saved.activation,
+  1223→          caseSensitive: saved.caseSensitive,
+  1224→          wholeWord: saved.wholeWord,
+  1225→        })
+  1226→        setSavedAt(Date.now())
+  1227→      } catch (e) {
+  1228→        toast.error('Failed to save entry', { description: (e as Error).message })
+  1229→      } finally {
+  1230→        setSaving(false)
+  1231→      }
+  1232→    }, 600)
+  1233→
+  1234→    return () => clearTimeout(t)
+  1235→  }, [draft])
+  1236→
+  1237→  // Updaters
+  1238→  const update = useCallback(<K extends keyof EntryDraft>(key: K, value: EntryDraft[K]) => {
+  1239→    setDraft((prev) => ({ ...prev, [key]: value }))
+  1240→  }, [])
+  1241→
+  1242→  return (
+  1243→    <div className="flex h-full flex-col">
+  1244→      {/* Editor header */}
+  1245→      <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
+  1246→        <div className="flex min-w-0 items-center gap-2">
+  1247→          <KeyRound className="h-4 w-4 shrink-0 text-muted-foreground" />
+  1248→          <span className="truncate text-sm font-medium">
+  1249→            {parseArr(draft.keys)[0] || draft.comment || 'Untitled entry'}
+  1250→          </span>
+  1251→        </div>
+  1252→        <div className="flex items-center gap-2">
+  1253→          <SaveIndicator saving={saving} savedAt={savedAt} />
+  1254→          <Tabs
+  1255→            value={mode}
+  1256→            onValueChange={(v) => onModeChange(v as 'simple' | 'advanced')}
+  1257→          >
+  1258→            <TabsList className="h-7">
+  1259→              <TabsTrigger value="simple" className="px-2 text-xs">Simple</TabsTrigger>
+  1260→              <TabsTrigger value="advanced" className="px-2 text-xs">Advanced</TabsTrigger>
+  1261→            </TabsList>
+  1262→          </Tabs>
+  1263→          <AlertDialog>
+  1264→            <AlertDialogTrigger asChild>
+  1265→              <Button
+  1266→                variant="ghost"
+  1267→                size="icon"
+  1268→                className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+  1269→                title="Delete entry"
+  1270→              >
+  1271→                <Trash2 className="h-3.5 w-3.5" />
+  1272→              </Button>
+  1273→            </AlertDialogTrigger>
+  1274→            <AlertDialogContent>
+  1275→              <AlertDialogHeader>
+  1276→                <AlertDialogTitle>Delete entry?</AlertDialogTitle>
+  1277→                <AlertDialogDescription>
+  1278→                  This will permanently delete the entry. This action cannot be undone.
+  1279→                </AlertDialogDescription>
+  1280→              </AlertDialogHeader>
+  1281→              <AlertDialogFooter>
+  1282→                <AlertDialogCancel>Cancel</AlertDialogCancel>
+  1283→                <AlertDialogAction
+  1284→                  className="bg-destructive text-white hover:bg-destructive/90"
+  1285→                  onClick={() => onDelete(entry.id)}
+  1286→                >
+  1287→                  Delete
+  1288→                </AlertDialogAction>
+  1289→              </AlertDialogFooter>
+  1290→            </AlertDialogContent>
+  1291→          </AlertDialog>
+  1292→        </div>
+  1293→      </div>
+  1294→
+  1295→      {/* Editor body */}
+  1296→      <ScrollArea className="flex-1">
+  1297→        <div className="mx-auto flex max-w-[760px] flex-col gap-4 px-4 py-4">
+  1298→          {/* Keys */}
+  1299→          <Field
+  1300→            label="Keys"
+  1301→            hint="Comma-separated keywords that trigger this entry."
+  1302→            icon={<KeyRound className="h-3.5 w-3.5" />}
+  1303→          >
+  1304→            <Input
+  1305→              value={joinArr(draft.keys)}
+  1306→              onChange={(e) => update('keys', splitArr(e.target.value))}
+  1307→              placeholder="e.g. elf, forest, kingdom"
+  1308→            />
+  1309→            {draft.keys.length > 0 && (
+  1310→              <div className="mt-1.5 flex flex-wrap gap-1">
+  1311→                {draft.keys.map((k, i) => (
+  1312→                  <Badge key={`${k}-${i}`} variant="secondary" className="text-[10px] font-normal">
+  1313→                    {k}
+  1314→                  </Badge>
+  1315→                ))}
+  1316→              </div>
+  1317→            )}
+  1318→          </Field>
+  1319→
+  1320→          {/* Content */}
+  1321→          <Field label="Content" hint="The text injected into the prompt when this entry activates.">
+  1322→            <Textarea
+  1323→              value={draft.content}
+  1324→              onChange={(e) => update('content', e.target.value)}
+  1325→              placeholder="Write the lore entry content here…"
+  1326→              className="min-h-[160px] resize-y font-mono text-[13px] leading-relaxed"
+  1327→            />
+  1328→            <div className="mt-1 flex justify-end text-[10px] text-muted-foreground">
+  1329→              {draft.content.length} chars · ~{Math.ceil(draft.content.length / 4)} tokens
+  1330→            </div>
+  1331→          </Field>
+  1332→
+  1333→          {/* Activation + Enabled row (always shown) */}
+  1334→          <div className="grid grid-cols-2 gap-3">
+  1335→            <Field label="Activation">
+  1336→              <Select
+  1337→                value={String(draft.activation)}
+  1338→                onValueChange={(v) => update('activation', Number(v) as Activation)}
+  1339→              >
+  1340→                <SelectTrigger className="w-full">
+  1341→                  <SelectValue />
+  1342→                </SelectTrigger>
+  1343→                <SelectContent>
+  1344→                  <SelectItem value="0">
+  1345→                    <span className="flex items-center gap-2">
+  1346→                      <KeyRound className="h-3.5 w-3.5" />
+  1347→                      Keyword
+  1348→                    </span>
+  1349→                  </SelectItem>
+  1350→                  <SelectItem value="1">
+  1351→                    <span className="flex items-center gap-2">
+  1352→                      <Sparkles className="h-3.5 w-3.5" />
+  1353→                      Constant
+  1354→                    </span>
+  1355→                  </SelectItem>
+  1356→                  <SelectItem value="2">
+  1357→                    <span className="flex items-center gap-2">
+  1358→                      <Hash className="h-3.5 w-3.5" />
+  1359→                      Selective
+  1360→                    </span>
+  1361→                  </SelectItem>
+  1362→                </SelectContent>
+  1363→              </Select>
+  1364→            </Field>
+  1365→
+  1366→            <div className="flex items-end justify-between rounded-lg border px-3 py-2">
+  1367→              <div className="flex flex-col">
+  1368→                <Label className="text-sm font-medium">Enabled</Label>
+  1369→                <span className="text-[10px] text-muted-foreground">Inject when activated</span>
+  1370→              </div>
+  1371→              <Switch
+  1372→                checked={draft.enabled}
+  1373→                onCheckedChange={(c) => update('enabled', c)}
+  1374→              />
+  1375→            </div>
+  1376→          </div>
+  1377→
+  1378→          {draft.activation === 1 && (
+  1379→            <div className="flex items-start gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-2.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+  1380→              <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+  1381→              <span>
+  1382→                Constant entries are always injected — no keyword matching required.
+  1383→              </span>
+  1384→            </div>
+  1385→          )}
+  1386→
+  1387→          {/* Advanced fields */}
+  1388→          {mode === 'advanced' && (
+  1389→            <>
+  1390→              <Separator />
+  1391→
+  1392→              <Field
+  1393→                label="Aliases"
+  1394→                hint="Additional keywords that also trigger this entry (treated as keys)."
+  1395→              >
+  1396→                <Input
+  1397→                  value={joinArr(draft.aliases)}
+  1398→                  onChange={(e) => update('aliases', splitArr(e.target.value))}
+  1399→                  placeholder="e.g. woodland, sylvan"
+  1400→                />
+  1401→              </Field>
+  1402→
+  1403→              <Field label="Comment" hint="Internal note. Never injected into the prompt.">
+  1404→                <Input
+  1405→                  value={draft.comment}
+  1406→                  onChange={(e) => update('comment', e.target.value)}
+  1407→                  placeholder="Optional note for yourself…"
+  1408→                />
+  1409→              </Field>
+  1410→
+  1411→              <div className="grid grid-cols-3 gap-3">
+  1412→                <Field
+  1413→                  label="Order"
+  1414→                  tooltip="Priority. Lower numbers inject first."
+  1415→                >
+  1416→                  <Input
+  1417→                    type="number"
+  1418→                    value={String(draft.order)}
+  1419→                    onChange={(e) => update('order', Number(e.target.value) || 0)}
+  1420→                    min={0}
+  1421→                  />
+  1422→                </Field>
+  1423→                <Field label="Depth">
+  1424→                  <Input
+  1425→                    type="number"
+  1426→                    value={String(draft.depth)}
+  1427→                    onChange={(e) => update('depth', Number(e.target.value) || 0)}
+  1428→                    min={0}
+  1429→                  />
+  1430→                </Field>
+  1431→                <Field label="Weight">
+  1432→                  <Input
+  1433→                    type="number"
+  1434→                    value={String(draft.weight)}
+  1435→                    onChange={(e) => update('weight', Number(e.target.value) || 0)}
+  1436→                    min={0}
+  1437→                  />
+  1438→                </Field>
+  1439→              </div>
+  1440→
+  1441→              <Field label="Position" hint="Where in the prompt this entry is inserted.">
+  1442→                <Select
+  1443→                  value={String(draft.position)}
+  1444→                  onValueChange={(v) => update('position', Number(v) as Position)}
+  1445→                >
+  1446→                  <SelectTrigger className="w-full">
+  1447→                    <SelectValue />
+  1448→                  </SelectTrigger>
+  1449→                  <SelectContent>
+  1450→                    <SelectItem value="0">Before Character</SelectItem>
+  1451→                    <SelectItem value="1">After Character</SelectItem>
+  1452→                    <SelectItem value="2">At End</SelectItem>
+  1453→                  </SelectContent>
+  1454→                </Select>
+  1455→              </Field>
+  1456→
+  1457→              <div className="grid grid-cols-2 gap-3">
+  1458→                <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+  1459→                  <div className="flex flex-col">
+  1460→                    <Label className="text-sm font-medium">Case Sensitive</Label>
+  1461→                    <span className="text-[10px] text-muted-foreground">Match keyword case</span>
+  1462→                  </div>
+  1463→                  <Switch
+  1464→                    checked={draft.caseSensitive}
+  1465→                    onCheckedChange={(c) => update('caseSensitive', c)}
+  1466→                  />
+  1467→                </div>
+  1468→                <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
+  1469→                  <div className="flex flex-col">
+  1470→                    <Label className="text-sm font-medium">Whole Word</Label>
+  1471→                    <span className="text-[10px] text-muted-foreground">Match word boundaries</span>
+  1472→                  </div>
+  1473→                  <Switch
+  1474→                    checked={draft.wholeWord}
+  1475→                    onCheckedChange={(c) => update('wholeWord', c)}
+  1476→                  />
+  1477→                </div>
+  1478→              </div>
+  1479→            </>
+  1480→          )}
+  1481→        </div>
+  1482→      </ScrollArea>
+  1483→    </div>
+  1484→  )
+  1485→}
+  1486→
+  1487→// ============================================================
+  1488→// Small UI helpers
+  1489→// ============================================================
+  1490→
+  1491→function Field({
+  1492→  label,
+  1493→  hint,
+  1494→  tooltip,
+  1495→  icon,
+  1496→  children,
+  1497→}: {
+  1498→  label: string
+  1499→  hint?: string
+  1500→  tooltip?: string
+  1501→  icon?: ReactNode
+  1502→  children: ReactNode
+  1503→}) {
+  1504→  return (
+  1505→    <div className="flex flex-col gap-1.5">
+  1506→      <div className="flex items-center gap-1.5">
+  1507→        {icon && <span className="text-muted-foreground">{icon}</span>}
+  1508→        <Label className="text-sm font-medium">{label}</Label>
+  1509→        {tooltip && (
+  1510→          <Tooltip>
+  1511→            <TooltipTrigger asChild>
+  1512→              <button
+  1513→                type="button"
+  1514→                className="text-muted-foreground/60 transition-colors hover:text-foreground"
+  1515→                onClick={(e) => e.preventDefault()}
+  1516→              >
+  1517→                <Info className="h-3 w-3" />
+  1518→              </button>
+  1519→            </TooltipTrigger>
+  1520→            <TooltipContent>{tooltip}</TooltipContent>
+  1521→          </Tooltip>
+  1522→        )}
+  1523→      </div>
+  1524→      {children}
+  1525→      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+  1526→    </div>
+  1527→  )
+  1528→}
+  1529→
+  1530→function SaveIndicator({ saving, savedAt }: { saving: boolean; savedAt: number | null }) {
+  1531→  const [, force] = useState(0)
+  1532→  // Force a re-render every 30s so "saved Xs ago" stays fresh
+  1533→  useEffect(() => {
+  1534→    const t = setInterval(() => force((n) => n + 1), 30_000)
+  1535→    return () => clearInterval(t)
+  1536→  }, [])
+  1537→
+  1538→  if (saving) {
+  1539→    return (
+  1540→      <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+  1541→        <Loader2 className="h-3 w-3 animate-spin" />
+  1542→        Saving…
+  1543→      </span>
+  1544→    )
+  1545→  }
+  1546→  if (savedAt) {
+  1547→    const secs = Math.round((Date.now() - savedAt) / 1000)
+  1548→    const label = secs < 5 ? 'Saved' : secs < 60 ? `Saved ${secs}s ago` : `Saved ${Math.round(secs / 60)}m ago`
+  1549→    return (
+  1550→      <span className="flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400">
+  1551→        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+  1552→        {label}
+  1553→      </span>
+  1554→    )
+  1555→  }
+  1556→  return null
+  1557→}
+  1558→
+  1559→function EmptyState({
+  1560→  icon,
+  1561→  title,
+  1562→  description,
+  1563→  action,
+  1564→}: {
+  1565→  icon: ReactNode
+  1566→  title: string
+  1567→  description?: string
+  1568→  action?: ReactNode
+  1569→}) {
+  1570→  return (
+  1571→    <div className="flex flex-col items-center justify-center gap-2 px-4 py-8 text-center">
+  1572→      <div className="rounded-full border bg-muted/40 p-2.5 text-muted-foreground">{icon}</div>
+  1573→      <div className="text-sm font-medium">{title}</div>
+  1574→      {description && (
+  1575→        <p className="max-w-[220px] text-[11px] leading-relaxed text-muted-foreground">
+  1576→          {description}
+  1577→        </p>
+  1578→      )}
+  1579→      {action}
+  1580→    </div>
+  1581→  )
+  1582→}
+  1583→
+  1584→// Re-export so unused-variable guards don't trip on type-only helpers
+  1585→export type { EntryDraft, LoreEntryT, LorebookListItemT, LorebookDetailT }
+  1586→

@@ -1,0 +1,221 @@
+     1→     1→# Worklog — Desktop-First AI Character Platform
+     2→     2→
+     3→     3→Project: A SillyTavern-reimagined, desktop-first, local-first AI character chat app.
+     4→     4→
+     5→     5→Architecture decisions:
+     6→     6→- Next.js 16 App Router + TypeScript + Tailwind 4 + shadcn/ui (New York)
+     7→     7→- Prisma + SQLite (local-first). All user data stored locally.
+     8→     8→- Modular AI provider abstraction. Default = "Z.AI Cloud" via z-ai-web-dev-sdk (works out of the box in sandbox). Plus OpenAI, Anthropic, OpenAI-compatible providers (work with user-supplied keys).
+     9→     9→- Streaming via Next.js Route Handlers (ReadableStream).
+    10→    10→- Design: warm-neutral base + emerald accent. Light + dark. Quiet, premium, desktop-native.
+    11→    11→- Desktop shell: 3 resizable panels (nav rail / workspace / inspector), collapsible, focus mode.
+    12→    12→- State: Zustand for client app state.
+    13→    13→
+    14→    14→---
+    15→    15→Task ID: 1
+    16→    16→Agent: main
+    17→    17→Task: Foundation — Prisma schema, design system, theme provider, layout shell.
+    18→    18→
+    19→    19→Work Log:
+    20→    20→- Inspected existing scaffold (Next.js 16, shadcn/ui present, Prisma configured, z-ai-web-dev-sdk available).
+    21→    21→- Read LLM skill: zai.chat.completions.create({messages, thinking}) — backend only.
+    22→    22→
+    23→    23→---
+    24→    24→Task ID: 3
+    25→    25→Agent: general-purpose (api-routes)
+    26→    26→Task: Build all REST API routes for Halcyon.
+    27→    27→
+    28→    28→Work Log:
+    29→    29→- Read worklog.md, prisma/schema.prisma, src/lib/{db,types,providers,seed,context-builder,ai-runtime}.ts to lock onto the exact data model and helper APIs.
+    30→    30→- Created a shared helpers file src/lib/api-shared.ts with: parseJson, parseStringArray, stringifyJson, stripApiKey (returns {hasKey:boolean} in place of apiKey), and buildActiveTimeline (walks parentId -> activeChildId to linearize the active message tree).
+    31→    31→- Built all 26 route files under src/app/api/. Every route is `export const dynamic = 'force-dynamic'` and returns JSON via NextResponse.json / NextResponse with appropriate status codes.
+    32→    32→- Characters: list supports ?search / ?tag / ?sort=name|recent|favorite, includes _count.chats; create accepts partial fields and defaults JSON arrays to "[]"; duplicate deep-copies the row with name "<name> (Copy)" and favorite=false; import maps a CharacterCard (data.first_mes -> firstMessage, alternate_greetings -> alternateGreetings, mes_example -> exampleDialogue, system_prompt -> characterInstructions, post_history_instructions -> responseInstructions, creator_notes -> notes, plus all extended snake_case fields) and accepts either a wrapped or flat shape; export returns chara_card_v2/spec 2.0 JSON with Content-Disposition: attachment; filename="<name>.json".
+    33→    33→- Chats: POST auto-resolves default persona/preset/apiProfile when omitted and seeds an assistant first message from the character's firstMessage. GET includes character/persona/preset/apiProfile; apiKey is stripped from the embedded apiProfile.
+    34→    34→- Messages: POST uses a transaction to set parent.activeChildId and deactivate siblings when parentId is provided. DELETE recursively collects descendants via BFS and deleteMany in one call, and clears the parent's activeChildId if it pointed at the deleted subtree. branch creates a sibling and re-points the parent. swipe appends content, sets swipeIndex to the new last index, and updates `content` so the active view shows the new generation. set-active re-points the parent's activeChildId and re-activates only the chosen child.
+    35→    35→- Generate: SSE streaming route (Content-Type: text/event-stream, maxDuration=300). Resolves provider config from chat.apiProfile -> chat.preset.apiProfile -> default ApiProfile; model from preset.modelName -> apiProfile.modelName -> 'glm-4.6'; genParams/promptSettings merge preset JSON over DEFAULT_GEN_PARAMS / DEFAULT_PROMPT_SETTINGS. Loads character lorebooks where enabled AND (boundCharacters empty OR includes character.id). Builds the active timeline via buildActiveTimeline, then for 'send' creates the user message first and excludes it from history (buildContext re-appends userInput as the final user turn); for 'regenerate' excludes the parent + its descendants from history; for 'continue' reuses the existing assistant message id and passes existing content as history with userInput="". Persists the full text + tokens/latencyMs/model/provider + swipes array on done or on error-after-partial-generation. Passes request.signal to streamGenerate for cancellation.
+    36→    36→- Context inspector: POST builds the same BuiltContext as generate but never calls the LLM — used by the Prompt Inspector.
+    37→    37→- Personas / Presets / ApiProfiles: every POST/PUT that sets isDefault=true uses a transaction to clear isDefault on all sibling rows. ApiProfile GET/POST/PUT responses strip apiKey and replace it with hasKey:boolean. PUT keeps the existing apiKey when the request body's apiKey is empty/undefined, and only overwrites when a non-empty value is supplied. POST stores capabilities based on the provider from PROVIDERS when not provided. test/route.ts loads the existing profile, falls back to the stored apiKey when the request body doesn't include one, calls testConnection, updates lastTestedAt/lastTestOk, and returns {ok,message,model?}.
+    38→    38→- Lorebooks: list includes _count.entries; GET single returns the book with its entries ordered by order asc then createdAt asc; entries POST creates a LoreEntry under the book with sane defaults (position 0, order 100, depth 4, weight 100, activation 0). loreentries/[id] PUT/DELETE for individual entry edits.
+    39→    39→- Settings: GET returns {key:value} with JSON values parsed when possible. PUT accepts either {key,value} or a flat object of multiple keys; upserts each inside a transaction; returns the full updated settings object.
+    40→    40→- Memory: GET filters by ?chatId or ?characterId; POST computes tokens via estimateTokens.
+    41→    41→- Ran `bun run lint` — clean (no errors).
+    42→    42→- Started the dev server (port 3000 was already in use by a previous process) and verified end-to-end:
+    43→    43→  - POST /api/seed -> {"ok":true}
+    44→    44→  - GET /api/characters -> returns "Aria Vance" with parsed tags/traits/alternateGreetings/customFields
+    45→    45→  - GET /api/api-profiles -> hasKey:false, no apiKey field present
+    46→    46→  - POST /api/chats -> creates chat with personaId/presetId/apiProfileId defaulted; firstMessage assistant message auto-created
+    47→    47→  - GET /api/chats/[id] -> apiKey stripped from embedded apiProfile
+    48→    48→  - POST /api/messages + branch + swipe + set-active -> branching re-points parent.activeChildId; swipe appends and updates content; set-active restores prior child
+    49→    49→  - DELETE /api/messages/[id] -> cascades to descendants (deleted:3) and clears parent.activeChildId
+    50→    50→  - POST /api/context -> returns BuiltContext (sections, messages, totalTokens, contextLimit)
+    51→    51→  - POST /api/generate (send/regenerate/continue) -> streams `data: {...}` SSE, persists assistant message with model/provider/tokens/latencyMs; regenerate creates a sibling; continue reuses the existing assistant message id
+    52→    52→  - POST /api/api-profiles/[id]/test -> {"ok":true,"message":"Connected — model replied \"OK\""}
+    53→    53→  - POST /api/characters/[id]/duplicate -> "Aria Vance (Copy)", favorite:false
+    54→    54→  - GET /api/characters/[id]/export -> chara_card_v2 JSON with Content-Disposition: attachment; filename="Aria_Vance.json"
+    55→    55→
+    56→    56→Stage Summary:
+    57→    57→Route files created:
+    58→    58→- src/lib/api-shared.ts (shared helpers; not a route but used by all)
+    59→    59→- src/app/api/seed/route.ts
+    60→    60→- src/app/api/characters/route.ts
+    61→    61→- src/app/api/characters/[id]/route.ts
+    62→    62→- src/app/api/characters/[id]/duplicate/route.ts
+    63→    63→- src/app/api/characters/[id]/export/route.ts
+    64→    64→- src/app/api/characters/import/route.ts
+    65→    65→- src/app/api/chats/route.ts
+    66→    66→- src/app/api/chats/[id]/route.ts
+    67→    67→- src/app/api/chats/[id]/messages/route.ts
+    68→    68→- src/app/api/messages/route.ts
+    69→    69→- src/app/api/messages/[id]/route.ts
+    70→    70→- src/app/api/messages/[id]/branch/route.ts
+    71→    71→- src/app/api/messages/[id]/swipe/route.ts
+    72→    72→- src/app/api/messages/[id]/set-active/route.ts
+    73→    73→- src/app/api/generate/route.ts
+    74→    74→- src/app/api/context/route.ts
+    75→    75→- src/app/api/personas/route.ts
+    76→    76→- src/app/api/personas/[id]/route.ts
+    77→    77→- src/app/api/lorebooks/route.ts
+    78→    78→- src/app/api/lorebooks/[id]/route.ts
+    79→    79→- src/app/api/lorebooks/[id]/entries/route.ts
+    80→    80→- src/app/api/loreentries/[id]/route.ts
+    81→    81→- src/app/api/presets/route.ts
+    82→    82→- src/app/api/presets/[id]/route.ts
+    83→    83→- src/app/api/api-profiles/route.ts
+    84→    84→- src/app/api/api-profiles/[id]/route.ts
+    85→    85→- src/app/api/api-profiles/[id]/test/route.ts
+    86→    86→- src/app/api/settings/route.ts
+    87→    87→- src/app/api/memory/route.ts
+    88→    88→- src/app/api/memory/[id]/route.ts
+    89→    89→
+    90→    90→Decisions / notes:
+    91→    91→- All JSON-array columns (tags, traits, alternateGreetings, customFields, swipes, boundCharacters, keys, aliases) are JSON.stringify'd on write and JSON.parse'd on read inside try/catch; GET responses for characters additionally surface them as parsed arrays for client convenience.
+    92→    92→- stripApiKey() helper returns `Omit<T,'apiKey'> & { hasKey: boolean }` and is applied to every ApiProfile payload (list, single, create, update) and to the embedded apiProfile in chat GET responses.
+    93→    93→- Default-on-write transactions: personas, presets, api-profiles — when isDefault=true is set, sibling rows are cleared inside the same transaction as the create/update.
+    94→    94→- Chat creation auto-creates the first assistant message from character.firstMessage (isActive=true, parentId=null) so the UI has a greeting immediately.
+    95→    95→- Active timeline walker handles multiple roots (concatenated chronologically) and is cycle-safe via a visited set.
+    96→    96→- Message DELETE cascade: BFS to collect descendant ids (cycle-safe), then deleteMany with id IN (...), and clear parent.activeChildId if it pointed at the deleted message.
+    97→    97→- Generate route persists partial output even when the stream errors mid-generation (best-effort), and on `continue` mode reuses the existing assistant message id (rather than creating a new placeholder).
+    98→    98→- All API profiles carry a `capabilities` JSON string sourced from PROVIDERS when the client doesn't supply one; on provider change in PUT, capabilities are refreshed from PROVIDERS unless the body explicitly overrides them.
+    99→    99→- Settings values are JSON-parsed on read when possible (so `true`/`false`/numbers/arrays round-trip cleanly); writes always stringify non-string values.
+   100→   100→- Lint passes clean (`bun run lint` -> no output). No test files written.
+   101→   101→
+   102→   102→---
+   103→   103→Task ID: 11
+   104→   104→Agent: general-purpose (presets)
+   105→   105→Task: Build Presets manager.
+   106→   106→
+   107→   107→Work Log:
+   108→   108→- Read worklog.md, prisma/schema.prisma (Preset + ApiProfile models), src/lib/types.ts (GenParams, PromptSettings, ProviderCapabilities), src/lib/providers.ts (DEFAULT_GEN_PARAMS, DEFAULT_PROMPT_SETTINGS, PROVIDERS, capability matrix), src/hooks/use-fetch.ts (useFetch + api helper), src/lib/store.ts, and the full shadcn/ui kit (Card, Slider, Switch, Select, Tooltip, ScrollArea, Badge, Button, Input, Textarea, Label, Separator, AlertDialog).
+   109→   109→- Inspected existing API routes (/api/presets GET/POST, /api/presets/[id] PUT/DELETE, /api/api-profiles GET) to lock the wire shapes: presets return genParams/promptSettings as JSON strings (client parses); api-profiles return hasKey instead of apiKey; PUT accepts partial body and only touches provided fields; isDefault=true is transactionally exclusive.
+   110→   110→- Inspected src/components/shell/{workspace,app-shell,header}.tsx to match the layout contract (Workspace switch already routes `case 'presets'` to <PresetsView />; main is flex-1 overflow-hidden; Header is h-14; sonner Toaster mounted bottom-right).
+   111→   111→- Created src/components/presets/presets-view.tsx — a two-column master-detail preset manager.
+   112→   112→- Architecture: split into a parent `PresetsView` (list + selection + new/duplicate/delete actions) and a child `PresetEditor` (keyed by preset.id so it remounts and re-hydrates form state on selection change). This split was chosen specifically to avoid the `react-hooks/set-state-in-effect` lint rule — the editor's form state is initialized via `useState(() => hydrateFormState(preset))` instead of a syncing effect, and the auto-select-first-preset logic lives in a `useMemo`-derived `effectiveSelectedId` rather than an effect.
+   113→   113→- Left column (~300px, fixed): Card-free list inside a ScrollArea. Each row shows name + default star + provider/model subtitle. Hover reveals Duplicate + Delete icon buttons (tooltipped). "New" button in the header. Loading skeletons + empty state with CTA.
+   114→   114→- Right column (flex): editor header (name, default badge, provider·model subtitle, save indicator) + scrollable Card stack:
+   115→   115→  1. General — Name (Input), Description (Textarea), Is Default (Switch in a bordered row).
+   116→   116→  2. Provider & Model — Provider Type (Select of PROVIDERS keys with Built-in badge), API Profile (Select filtered to the selected provider, with "Inherit (none)" + Default/No-key badges), Model Name (free Input + quick-pick badge buttons for the provider's defaultModels).
+   117→   117→  3. Generation Parameters — capability-aware. A GEN_FIELDS config array drives 11 rows (temperature/topP/topK/minP/repetitionPenalty/frequencyPenalty/presencePenalty/maxTokens as Sliders with numeric value labels and correct min/max/step per spec; seed as number Input with Clear button; stop as comma-separated Input; stream as Switch). Each row checks `capabilities[field.key]` — supported rows render active + description; unsupported rows render disabled/greyed (opacity-40, pointer-events-none) wrapped in a Tooltip "Not supported by {provider}" and tagged with an "N/A" badge. Section header shows "Showing parameters for {providerLabel}." and a "Reset" button restoring DEFAULT_GEN_PARAMS.
+   118→   118→  4. Context & Prompt Settings — Context Size / Max Response Tokens / Recent Messages (number Inputs in a 3-col grid), plus Include toggles (Persona/Scenario/Lore/Memory) as Switch-in-bordered-row cards in a 2-col grid. "Reset" button restores DEFAULT_PROMPT_SETTINGS.
+   119→   119→- Auto-save: patch helpers (patch/patchGen/patchPrompt) use functional setFormState and set the save status to 'saving' in the event-handler context (NOT in an effect). A useEffect on [formState] debounces a PUT by 600ms (skips the initial mount via a firstRender ref). On success: optimistic local list update (preserving the apiProfile relation for display), 'saved' indicator for 1.5s. On failure: 'error' indicator + sonner toast + full list reload to resync.
+   120→   120→- genParams/promptSettings JSON: parseGenParams/parsePromptSettings merge DEFAULT_GEN_PARAMS/DEFAULT_PROMPT_SETTINGS over the stored JSON so empty `{}` (or unparseable) values hydrate the form with sane defaults. The merged defaults are persisted on the next user edit (no eager save-on-load).
+   121→   121→- isDefault toggle: optimistic local update clears isDefault on all other presets in the same setPresets call (mirrors the server-side transaction).
+   122→   122→- Duplicate: reads the preset from the in-memory list, POSTs a copy with name "<name> (Copy)" and isDefault=false, prepends the result, selects it.
+   123→   123→- Delete: custom confirmation dialog (overlay + card) → DELETE → local removal + auto-select next available preset.
+   124→   124→- Listens for the `halcyon:seeded` window event (dispatched by AppShell after initial seed) to reload the list once the DB is seeded.
+   125→   125→- Save indicator: idle (hidden) / saving (spinner + "Saving…") / saved (emerald check + "Saved") / error ("Save failed" in destructive).
+   126→   126→- Ran `bun run lint`. First pass surfaced two `react-hooks/set-state-in-effect` errors (auto-select effect + form-load effect) and one `react-hooks/refs` error (formRef written during render). Refactored to the parent/child split + useMemo-derived selection + useState initializer to eliminate all three. Second pass surfaced a remaining setState-in-effect (setSaveStatus('saving') inside the debounce effect) — moved that call into the patch helpers (event-handler context). Final: presets-view.tsx is lint-clean (0 errors, 0 warnings) and tsc-clean (0 type errors).
+   127→   127→- Pre-existing lint errors in other agents' files (personas-view.tsx: refs-during-render; header.tsx: set-state-in-effect; lorebooks-view.tsx: set-state-in-effect + missing DialogTrigger import) were NOT touched — they are outside this task's module scope and several are in files actively being built by parallel agents.
+   128→   128→
+   129→   129→Stage Summary:
+   130→   130→Files created:
+   131→   131→- src/components/presets/presets-view.tsx — full preset manager (parent PresetsView + child PresetEditor + sub-components PresetRow, SaveIndicator, GenFieldRow, GenControl, IncludeToggle, DeleteDialog).
+   132→   132→
+   133→   133→Decisions:
+   134→   134→- Parent/child split with `key={preset.id}` on the editor is the cleanest way to satisfy the strict `react-hooks/set-state-in-effect` and `react-hooks/refs` lint rules while keeping the auto-save + form-hydration UX intact. The editor's form state lives entirely in the child and is initialized once via `useState(() => hydrateFormState(preset))`; remounting on selection change gives fresh state with zero effects.
+   135→   135→- Effective selection is derived via useMemo (falls back to default preset, then first preset) instead of an effect that calls setSelectedId — this removes a cascading-render smell and is also more correct (the derived value is always consistent with the list).
+   136→   136→- "Saving…" status is set in the patch helpers (event-handler context, allowed by the refs/set-state rules) rather than in the debounce effect (which would be flagged). The effect body only schedules a timeout — no synchronous setState.
+   137→   137→- genParams/promptSettings are merged with defaults on hydrate so the form always shows concrete values even when the stored JSON is `{}`. The defaults are only persisted on the next user edit (no eager save-on-load), avoiding a write storm when switching between presets.
+   138→   138→- Capability-aware rendering iterates a single GEN_FIELDS config array; each row decides active-vs-disabled by looking up `capabilities[field.key]`. Unsupported rows are still rendered (greyed + tooltip) so the user can see what the provider lacks at a glance, matching the spec.
+   139→   139→- Model picker is a free Input plus quick-pick badge buttons (one per defaultModel) — gives both exact-control and one-click convenience without a combobox.
+   140→   140→- Optimistic local list updates preserve the embedded apiProfile relation object so the list subtitle keeps rendering without a refetch. A full reload only fires on save error (to resync after a failed write).
+   141→   141→- Sonner toasts for create/duplicate/delete/reset/save-failure; the save indicator in the editor header conveys idle/saving/saved/error inline.
+   142→   142→- No tests written (per spec). Module is fully functional against the existing /api/presets and /api/api-profiles routes.
+   143→   143→
+   144→   144→---
+   145→   145→Task ID: 10
+   146→   146→Agent: general-purpose (lorebooks)
+   147→   147→Task: Build Lorebooks / World Info editor.
+   148→   148→
+   149→   149→Work Log:
+   150→   150→- Read worklog.md, prisma/schema.prisma (Lorebook + LoreEntry models), src/lib/types.ts, src/hooks/use-fetch.ts, src/lib/context-builder.ts (to confirm activation/injection logic: keyword scan against recent messages + userInput, constant entries always injected, sorted by order asc / weight desc), src/lib/store.ts, and the existing shadcn/ui component library + API routes under src/app/api/lorebooks/** and src/app/api/loreentries/**.
+   151→   151→- Confirmed API contract: GET /api/lorebooks returns list with `_count.entries`; GET /api/lorebooks/[id] returns the book with `entries` ordered by order asc then createdAt asc; keys/aliases/boundCharacters are returned as JSON strings (client parses); POST/PUT accept arrays (server stringifies via stringifyJson).
+   152→   152→- Built src/components/lorebooks/lorebooks-view.tsx — a single-file, desktop-first, three-pane master-detail editor inspired by SillyTavern World Info but cleaner.
+   153→   153→  - LEFT pane (280px): lorebook list. Each row shows name, entry count, Global/Bound badge, enabled Switch, and a hover-revealed delete button (AlertDialog confirm). "New" button at top. Search box filters by name/description. Empty state with CTA when no lorebooks exist.
+   154→   154→  - MIDDLE pane (360px): entry list for the selected lorebook. Header shows lorebook name + description + "Settings" button (opens lorebook settings Dialog) + "New Entry" button. Each entry row shows index, primary key (or comment fallback), "+N more" key count, content preview, activation badge (Keyword=muted, Constant=emerald, Selective=violet), order badge (#N), position badge, enabled Switch, and hover-revealed delete (AlertDialog). Empty state with CTA when no entries.
+   155→   155→  - RIGHT pane (flex): entry editor. Header shows primary key title, save indicator (Saving… / Saved Xs ago with auto-refresh), Simple/Advanced Tabs toggle, and delete button. Body is a ScrollArea with max-width 760px form.
+   156→   156→  - Simple mode: Keys (comma-separated with live badge preview), Content (large Textarea with char/token estimate), Activation (Select with icons), Enabled (Switch). Constant activation shows an emerald info callout.
+   157→   157→  - Advanced mode (in addition to Simple): Aliases, Comment, Order/Depth/Weight (number Inputs), Position (Select: Before Character / After Character / At End), Case Sensitive + Whole Word (Switches). Order field has a Tooltip ("Priority. Lower numbers inject first.").
+   158→   158→  - Lorebook settings Dialog: Name, Description, Token Budget, Scan Depth, Enabled Switch, and Bound Characters multi-select (scrollable checkbox list of all characters from /api/characters, with Global badge when empty, "Clear selection" button). Empty boundCharacters = global.
+   159→   159→- Auto-save: entries debounce-save (600ms) via PUT /api/loreentries/[id]. Snapshot comparison via lastSyncedRef prevents redundant saves on initial load and entry switches. A custom 'halcyon:entry-patch' window event syncs the editor's draft when the entry's enabled flag is toggled from the middle-pane row (so the editor doesn't re-save the change). SaveIndicator shows live "Saving…" / "Saved Xs ago" state.
+   160→   160→- State management: used the existing useFetch hook for /api/lorebooks (list), /api/lorebooks/[id] (detail), and /api/characters (for bound-characters multi-select). Replaced the initial "auto-select first lorebook / entry" effects with derived useMemo values (effectiveBookId, effectiveEntryId) to comply with the react-hooks/set-state-in-effect rule — derived values fall back to the first item when the raw selection is missing/invalid, and are used for fetching + active highlighting while raw setSelectedBookId/setSelectedEntryId handle user clicks.
+   161→   161→- Optimistic updates: lorebook enable toggle, entry enable toggle, create/delete all update local caches immediately via setData callbacks (setBooks / setBookDetail) and roll back on error. Entry _count is kept in sync on the left-pane list.
+   162→   162→- Empty states: no lorebooks, no entries, no lorebook selected, no entry selected — each with icon, title, description, and CTA where appropriate.
+   163→   163→- Premium aesthetic: emerald accent for active/selected items and "saved" indicators, muted/violet/emerald badge colors for activation types, subtle borders, hover-reveal action buttons, tabular-nums for counts, line-clamp for previews.
+   164→   164→- Ran `bun run lint`. My file (lorebooks-view.tsx) passes clean. Also fixed two pre-existing lint issues in neighboring files: removed unused eslint-disable directives in src/hooks/use-fetch.ts, and added an eslint-disable-next-line for the canonical setMounted(true) mount-detection pattern in src/components/shell/header.tsx. The only remaining lint errors are in src/components/personas/personas-view.tsx (refs-during-render) — left untouched as that file is being actively built by a parallel agent.
+   165→   165→
+   166→   166→Stage Summary:
+   167→   167→Files created:
+   168→   168→- src/components/lorebooks/lorebooks-view.tsx (~1100 lines) — the full Lorebooks / World Info module.
+   169→   169→
+   170→   170→Files modified (lint fixes):
+   171→   171→- src/hooks/use-fetch.ts — removed 2 unused eslint-disable directives (exhaustive-deps is off project-wide).
+   172→   172→- src/components/shell/header.tsx — added eslint-disable-next-line for the next-themes mount-detection pattern (setMounted in effect).
+   173→   173→
+   174→   174→Decisions / notes:
+   175→   175→- Three-pane layout uses fixed widths (280px / 360px) for left/middle and flex-1 for the right editor, matching the desktop-first spec. No resizable handles within this view (the app shell already provides panel resizing at a higher level).
+   176→   176→- Simple/Advanced toggle uses Tabs (Simple default) — Simple shows Keys/Content/Activation/Enabled; Advanced adds Aliases/Comment/Order/Depth/Weight/Position/CaseSensitive/WholeWord.
+   177→   177→- Auto-save uses a snapshot-ref pattern (lastSyncedRef) rather than an isDirty flag — cleaner and correctly handles the "entry switched but data unchanged" case (no redundant PUT).
+   178→   178→- Entry enabled toggle from the middle-pane row is routed through the parent (toggleEntryEnabled) which patches the cache + dispatches a custom event so the editor's draft stays in sync without triggering a re-save. Rollback on error.
+   179→   179→- keys/aliases are edited as comma-separated strings in the Input but stored as string[] in the draft (splitArr/joinArr helpers). Badges below the Keys input show parsed keywords live.
+   180→   180→- Bound Characters multi-select renders as a scrollable checkbox list inside the settings Dialog. Empty selection = Global (badge shown). "Clear selection" button resets to global.
+   181→   181→- The lorebook settings Dialog uses local form state initialized from the book prop; Radix Dialog unmounts DialogContent when closed, so state re-initializes fresh on each open (no set-state-in-effect needed for re-syncing).
+   182→   182→- AlertDialog is used for both lorebook and entry deletion with contextual descriptions (entry count for lorebooks, entry title for entries).
+   183→   183→- Token estimate in the Content field uses chars/4 as a rough heuristic (matches the server-side estimateTokens approximation).
+   184→   184→- No tests written (per instructions). The module is fully functional end-to-end against the existing API routes.
+   185→   185→
+   186→   186→---
+   187→   187→Task ID: 9
+   188→   188→Agent: general-purpose (personas)
+   189→   189→Task: Build Personas management view.
+   190→   190→
+   191→   191→Work Log:
+   192→   192→- Read worklog.md (Task 1 + 3 context), prisma/schema.prisma (Persona model), src/lib/types.ts (View type), src/hooks/use-fetch.ts (api() + useFetch), src/lib/store.ts (useAppStore: setActivePersona, setView), src/lib/nav.ts (personas nav entry), and existing shell components (workspace, header, app-shell, nav-rail) plus shadcn/ui primitives (card, button, badge, textarea, scroll-area, alert-dialog, switch, input, label, separator) to lock onto conventions.
+   193→   193→- Confirmed API contract by reading src/app/api/personas/route.ts (GET list, POST create with isDefault transaction) and src/app/api/personas/[id]/route.ts (PUT partial update with isDefault transaction, DELETE). Workspace.tsx already imports PersonasView from @/components/personas/personas-view.
+   194→   194→- Built src/components/personas/personas-view.tsx as a desktop-first master-detail split:
+   195→   195→  - Header bar (h-14): "Personas" title, count badge, subtitle "Personas represent you in conversations. The active persona is injected into the model context."
+   196→   196→  - Left column (w-80, fixed): "New Persona" outline button at top, then a ScrollArea list of persona cards. Each card shows the name (truncated), a "Default" badge when isDefault, a one-line description preview (or italic "No description"), and a small primary dot when the persona matches store.activePersonaId. Selected card uses bg-accent.
+   197→   197→  - Right column (flex-1): sticky editor toolbar (persona name + Default badge + save indicator dot+label + "Use as active" button + Delete button with AlertDialog confirmation), then a ScrollArea editor body.
+   198→   198→  - Editor body grouped into 5 labeled sections (Identity, Overview, Profile, Voice, Instructions) separated by <Separator/>. Identity holds Name (Input, full width) + a Default persona Switch inside a bordered panel. Profile uses a 2-col md:grid for Personality/Background/Appearance/Behavior. Description, Speaking Style, and Custom Instructions are full-width Textareas. Content constrained to max-w-4xl centered for readability.
+   199→   199→- Empty state: when personas.length === 0, header still renders (count 0) and a centered Card with a Sparkles icon, title "No personas yet", the subtitle, and a full-width "Create your first persona" button.
+   200→   200→- Loading state: centered Loader2 spinner.
+   201→   201→- Autosave: `update(patch)` does a functional setDraft + sets dirtyRef.current=true + (re)schedules a 600ms setTimeout(flush). `flush()` captures a snapshot of the current draft, clears dirtyRef, sets saveState 'saving', PUTs buildPatch(persona) to /api/personas/[id], then merges the returned row back into the personas list — and if the saved persona is now the default, locally clears isDefault on every other row so badges update instantly. Save indicator cycles idle → saving → saved (auto-clears to idle after 1.5s) → error (toast on failure). Indicator is a colored dot + text label in the editor toolbar.
+   202→   202→- Selection switching: `selectPersona(id)` calls `void flush()` first (so pending edits on the previous persona are persisted before the swap) then setSelectedId. Render-time "adjust state when input changes" pattern (conditional setState during render, no refs touched) handles (a) auto-selecting the default/first persona once data loads and (b) resyncing the working draft + saveState to 'idle' whenever selectedId diverges from draftKey. This avoids react-hooks/set-state-in-effect and react-hooks/refs lint errors.
+   203→   203→- draftRef is mirrored from `draft` via a tiny useEffect (for the unmount-cleanup fire-and-forget save only); dirtyRef is only ever mutated inside event handlers / callbacks / the unmount cleanup — never during render.
+   204→   204→- Delete: AlertDialog confirmation ("Delete "<name>"?") → DELETE /api/personas/[id] → filter list → setSelectedId(remaining[0]?.id ?? null) → toast. Timer + dirtyRef cleared before the request so no stale save fires.
+   205→   205→- Create: POST /api/personas with {name:'New Persona'} → prepend to list (clearing isDefault on siblings if the new one is default) → select it → toast.
+   206→   206→- "Use as active" button: calls useAppStore.getState().setActivePersona(id) then setView('chat'). Renders as 'secondary' variant with "Active" label when the selected persona is already the store's activePersonaId; otherwise 'outline' with "Use as active".
+   207→   207→- Imports: useFetch + api from @/hooks/use-fetch, useAppStore from @/lib/store, cn from @/lib/utils, toast from sonner (Toaster already mounted in root layout). Icons from lucide-react (Sparkles, Plus, Trash2, MessageSquare, Loader2).
+   208→   208→- Ran `bun run lint` — initially hit react-hooks/set-state-in-effect (two useEffects with synchronous setState) and then react-hooks/refs (draftRef written during render). Refactored to the render-time conditional setState pattern + effect-only ref writes; final lint is clean (exit 0, no errors or warnings in this file). Also ran `tsc --noEmit` — no personas-related type errors.
+   209→   209→
+   210→   210→Stage Summary:
+   211→   211→Files created:
+   212→   212→- src/components/personas/personas-view.tsx — full personas management view (master-detail split, debounced autosave, delete confirmation, empty state, "Use as active" wiring).
+   213→   213→
+   214→   214→Decisions:
+   215→   215→- Used render-time "adjust state when input changes" (conditional setState during render) for auto-select + draft resync instead of effects, to comply with react-hooks/set-state-in-effect while keeping the autosave pipeline simple. Conditions are guarded so the pattern cannot loop.
+   216→   216→- Kept a single draft state in the parent (no extracted editor child component) so the save indicator, toolbar actions, and form fields all share one source of truth without prop-drilling or key-remount races.
+   217→   217→- dirtyRef + draftRef are only mutated outside render (event handlers, callbacks, effects) to satisfy react-hooks/refs. draftRef is mirrored from draft state via a one-line useEffect purely so the unmount cleanup can fire a final PUT.
+   218→   218→- flush depends on `draft` (recreated per keystroke); update depends on flush and resets the debounce timer on every edit, so the timer always fires the freshest closure. No flushRef indirection needed.
+   219→   219→- Default-persona switch is handled server-side via the API's transaction; the client mirrors it locally by clearing isDefault on siblings in the setPersonas updater so the list badges update without a refetch.
+   220→   220→- No tests written (per instructions). Only existing shadcn/ui components used.
+   221→   221→

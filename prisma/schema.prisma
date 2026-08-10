@@ -1,0 +1,287 @@
+// Desktop-first AI Character Platform — Prisma schema
+// Local-first. All data stored in local SQLite.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// CHARACTERS
+// ============================================================
+
+model Character {
+  id          String   @id @default(cuid())
+  name        String
+  avatar      String?  // relative path to /upload or data URL
+  description String?
+  creator     String?
+  version     String   @default("1.0")
+  tags        String   @default("[]") // JSON array of strings
+  favorite    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Personality
+  personality     String?
+  traits          String  @default("[]") // JSON string[]
+  behavior        String?
+  values          String?
+  goals           String?
+  likes           String?
+  dislikes        String?
+  emotionalTendency String?
+  speakingStyle   String?
+
+  // Scenario
+  scenario        String?
+  setting         String?
+  location        String?
+  currentSituation String?
+  relationship    String?
+  worldContext    String?
+
+  // Dialogue
+  firstMessage   String?
+  alternateGreetings String @default("[]") // JSON string[]
+  exampleDialogue String?
+  speechPatterns String?
+
+  // Instructions
+  characterInstructions String?
+  behavioralRules String?
+  responseInstructions String?
+  formattingRules String?
+  roleplayInstructions String?
+
+  // Advanced — extensible custom fields stored as JSON
+  customFields String @default("[]") // JSON [{key,label,value}]
+
+  // Metadata
+  notes String?
+
+  chats      Chat[]
+  createdAt_iso String?
+
+  @@index([favorite])
+}
+
+// ============================================================
+// CHATS / CONVERSATIONS (with branching)
+// ============================================================
+
+model Chat {
+  id          String   @id @default(cuid())
+  title       String
+  characterId String
+  personaId   String?
+  presetId    String?
+  apiProfileId String?
+  pinned      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  character  Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  persona    Persona?  @relation(fields: [personaId], references: [id], onDelete: SetNull)
+  preset     Preset?   @relation(fields: [presetId], references: [id], onDelete: SetNull)
+  apiProfile ApiProfile? @relation(fields: [apiProfileId], references: [id], onDelete: SetNull)
+  messages   Message[]
+
+  @@index([characterId])
+  @@index([updatedAt])
+}
+
+// Messages form a tree via parentId to support branching.
+model Message {
+  id          String   @id @default(cuid())
+  chatId      String
+  role        String   // 'user' | 'assistant' | 'system'
+  content     String
+  // Branching: a message may have a parent and a "main child" pointer used to render the active timeline.
+  parentId    String?  // null = root message
+  // The child id that is currently the "active" branch in this chat's timeline.
+  activeChildId String?
+  // Whether this message is part of the active displayed timeline (denormalized helper)
+  isActive    Boolean  @default(true)
+  // Generation metadata
+  model       String?
+  provider    String?
+  tokens      Int?
+  latencyMs   Int?
+  // Branch metadata
+  branchLabel String?
+  isPinned     Boolean  @default(false)
+  isImportant  Boolean  @default(false)
+  // Swipes / alternative generations for the SAME turn
+  swipes      String   @default("[]") // JSON string[] of alternative contents
+  swipeIndex  Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  chat    Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  parent  Message? @relation("MessageBranch", fields: [parentId], references: [id], onDelete: Cascade)
+  children Message[] @relation("MessageBranch")
+
+  @@index([chatId])
+  @@index([parentId])
+}
+
+// ============================================================
+// PERSONAS
+// ============================================================
+
+model Persona {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  personality String?
+  background  String?
+  appearance  String?
+  behavior    String?
+  speakingStyle String?
+  customInstructions String?
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  chats Chat[]
+
+  @@index([isDefault])
+}
+
+// ============================================================
+// LOREBOOKS / WORLD INFO
+// ============================================================
+
+model Lorebook {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  // Token budget for this book when injected
+  tokenBudget Int      @default(2048)
+  // Whether recursion scans assistant output too
+  scanDepth   Int      @default(1)
+  enabled     Boolean  @default(true)
+  // Bind to characters (JSON array of character ids) — empty = global
+  boundCharacters String @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  entries LoreEntry[]
+
+  @@index([enabled])
+}
+
+model LoreEntry {
+  id          String   @id @default(cuid())
+  lorebookId  String
+  keys        String   @default("[]") // JSON string[] — primary keywords
+  aliases     String   @default("[]") // JSON string[]
+  content     String
+  comment     String?
+  enabled     Boolean  @default(true)
+  // Insertion position: 0 = before char, 1 = after char, 2 = at end (system)
+  position    Int      @default(0)
+  order       Int      @default(100) // priority — lower = higher priority
+  depth       Int      @default(4)   // for "at depth" insertion
+  weight      Int      @default(100)
+  // Activation: 0 = keyword, 1 = constant, 2 = selective (advanced)
+  activation  Int      @default(0)
+  // Selective logic (JSON) — for advanced conditional activation
+  logic       String?
+  caseSensitive Boolean @default(false)
+  // Whether to match whole words only
+  wholeWord   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lorebook Lorebook @relation(fields: [lorebookId], references: [id], onDelete: Cascade)
+
+  @@index([lorebookId])
+  @@index([enabled])
+}
+
+// ============================================================
+// PRESETS (generation + prompt config bundles)
+// ============================================================
+
+model Preset {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  // Provider/model binding (optional — can inherit from API profile)
+  providerType String?  // 'zai' | 'openai' | 'anthropic' | 'openai-compatible'
+  modelName   String?
+  apiProfileId String?
+  // Generation params stored as JSON
+  genParams   String   @default("{}") // {temperature, topP, topK, minP, ...}
+  // Prompt/context settings stored as JSON
+  promptSettings String @default("{}") // {contextSize, maxResponseTokens, ...}
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  apiProfile ApiProfile? @relation(fields: [apiProfileId], references: [id], onDelete: SetNull)
+  chats      Chat[]
+
+  @@index([isDefault])
+}
+
+// ============================================================
+// API PROFILES (provider configurations)
+// ============================================================
+
+model ApiProfile {
+  id          String   @id @default(cuid())
+  name        String
+  provider    String   @default("zai") // 'zai' | 'openai' | 'anthropic' | 'openai-compatible'
+  baseUrl     String?
+  apiKey      String?  // stored locally; never logged/exposed in debug
+  modelName   String?
+  // Capabilities exposed by this provider (JSON)
+  capabilities String  @default("{}")
+  isDefault   Boolean  @default(false)
+  lastTestedAt DateTime?
+  lastTestOk   Boolean?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  presets Preset[]
+  chats   Chat[]
+
+  @@index([isDefault])
+}
+
+// ============================================================
+// MEMORY (summaries, pinned facts, important info)
+// ============================================================
+
+model Memory {
+  id          String   @id @default(cuid())
+  chatId      String?
+  characterId String?
+  type        String   // 'summary' | 'fact' | 'pinned' | 'manual'
+  content     String
+  // Token estimate for this memory entry
+  tokens      Int      @default(0)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([chatId])
+  @@index([characterId])
+}
+
+// ============================================================
+// SETTINGS (key-value global app settings)
+// ============================================================
+
+model Setting {
+  key    String @id
+  value  String
+  updatedAt DateTime @updatedAt
+}

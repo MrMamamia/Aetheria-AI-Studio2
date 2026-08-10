@@ -1,0 +1,1267 @@
+     1→'use client'
+     2→
+     3→import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+     4→import { toast } from 'sonner'
+     5→import {
+     6→  Check,
+     7→  Copy,
+     8→  Loader2,
+     9→  Plus,
+    10→  RotateCcw,
+    11→  Star,
+    12→  Trash2,
+    13→} from 'lucide-react'
+    14→
+    15→import { api, useFetch } from '@/hooks/use-fetch'
+    16→import {
+    17→  DEFAULT_GEN_PARAMS,
+    18→  DEFAULT_PROMPT_SETTINGS,
+    19→  PROVIDERS,
+    20→} from '@/lib/providers'
+    21→import type {
+    22→  GenParams,
+    23→  PromptSettings,
+    24→  ProviderCapabilities,
+    25→  ProviderType,
+    26→} from '@/lib/types'
+    27→import { cn } from '@/lib/utils'
+    28→
+    29→import { Badge } from '@/components/ui/badge'
+    30→import { Button } from '@/components/ui/button'
+    31→import {
+    32→  Card,
+    33→  CardContent,
+    34→  CardDescription,
+    35→  CardHeader,
+    36→  CardTitle,
+    37→} from '@/components/ui/card'
+    38→import { Input } from '@/components/ui/input'
+    39→import { Label } from '@/components/ui/label'
+    40→import { ScrollArea } from '@/components/ui/scroll-area'
+    41→import {
+    42→  Select,
+    43→  SelectContent,
+    44→  SelectItem,
+    45→  SelectTrigger,
+    46→  SelectValue,
+    47→} from '@/components/ui/select'
+    48→import { Slider } from '@/components/ui/slider'
+    49→import { Switch } from '@/components/ui/switch'
+    50→import { Textarea } from '@/components/ui/textarea'
+    51→import {
+    52→  Tooltip,
+    53→  TooltipContent,
+    54→  TooltipTrigger,
+    55→} from '@/components/ui/tooltip'
+    56→
+    57→// ============================================================
+    58→// Types
+    59→// ============================================================
+    60→
+    61→interface ApiProfileListItem {
+    62→  id: string
+    63→  name: string
+    64→  provider: ProviderType
+    65→  hasKey: boolean
+    66→  isDefault: boolean
+    67→  modelName?: string | null
+    68→}
+    69→
+    70→interface PresetListItem {
+    71→  id: string
+    72→  name: string
+    73→  description?: string | null
+    74→  providerType?: string | null
+    75→  modelName?: string | null
+    76→  apiProfileId?: string | null
+    77→  genParams: string // JSON string
+    78→  promptSettings: string // JSON string
+    79→  isDefault: boolean
+    80→  createdAt: string
+    81→  updatedAt: string
+    82→  apiProfile?: { id: string; name: string; provider: string } | null
+    83→}
+    84→
+    85→interface FormState {
+    86→  id: string
+    87→  name: string
+    88→  description: string
+    89→  isDefault: boolean
+    90→  providerType: ProviderType
+    91→  modelName: string
+    92→  apiProfileId: string | null
+    93→  genParams: GenParams
+    94→  promptSettings: PromptSettings
+    95→}
+    96→
+    97→type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+    98→
+    99→// ============================================================
+   100→// JSON helpers
+   101→// ============================================================
+   102→
+   103→function parseGenParams(raw: string | undefined | null): GenParams {
+   104→  if (!raw) return { ...DEFAULT_GEN_PARAMS }
+   105→  try {
+   106→    const parsed = JSON.parse(raw)
+   107→    if (parsed && typeof parsed === 'object') {
+   108→      return { ...DEFAULT_GEN_PARAMS, ...parsed }
+   109→    }
+   110→  } catch {
+   111→    /* ignore */
+   112→  }
+   113→  return { ...DEFAULT_GEN_PARAMS }
+   114→}
+   115→
+   116→function parsePromptSettings(raw: string | undefined | null): PromptSettings {
+   117→  if (!raw) return { ...DEFAULT_PROMPT_SETTINGS }
+   118→  try {
+   119→    const parsed = JSON.parse(raw)
+   120→    if (parsed && typeof parsed === 'object') {
+   121→      return { ...DEFAULT_PROMPT_SETTINGS, ...parsed }
+   122→    }
+   123→  } catch {
+   124→    /* ignore */
+   125→  }
+   126→  return { ...DEFAULT_PROMPT_SETTINGS }
+   127→}
+   128→
+   129→function hydrateFormState(p: PresetListItem): FormState {
+   130→  return {
+   131→    id: p.id,
+   132→    name: p.name,
+   133→    description: p.description ?? '',
+   134→    isDefault: p.isDefault,
+   135→    providerType: (p.providerType as ProviderType) || 'zai',
+   136→    modelName: p.modelName ?? '',
+   137→    apiProfileId: p.apiProfileId ?? null,
+   138→    genParams: parseGenParams(p.genParams),
+   139→    promptSettings: parsePromptSettings(p.promptSettings),
+   140→  }
+   141→}
+   142→
+   143→// ============================================================
+   144→// Generation parameter field config
+   145→// ============================================================
+   146→
+   147→type GenFieldType = 'slider' | 'number' | 'stringArray' | 'boolean'
+   148→
+   149→interface GenFieldConfig {
+   150→  key: keyof GenParams
+   151→  label: string
+   152→  type: GenFieldType
+   153→  min?: number
+   154→  max?: number
+   155→  step?: number
+   156→  description?: string
+   157→}
+   158→
+   159→const GEN_FIELDS: GenFieldConfig[] = [
+   160→  { key: 'temperature', label: 'Temperature', type: 'slider', min: 0, max: 2, step: 0.05, description: 'Higher = more creative, lower = more deterministic.' },
+   161→  { key: 'topP', label: 'Top P', type: 'slider', min: 0, max: 1, step: 0.01, description: 'Nucleus sampling cutoff.' },
+   162→  { key: 'topK', label: 'Top K', type: 'slider', min: 0, max: 100, step: 1, description: 'Limit sampling to top K tokens.' },
+   163→  { key: 'minP', label: 'Min P', type: 'slider', min: 0, max: 1, step: 0.01, description: 'Minimum token probability threshold.' },
+   164→  { key: 'repetitionPenalty', label: 'Repetition Penalty', type: 'slider', min: 0.5, max: 2, step: 0.05, description: 'Penalize repeated tokens.' },
+   165→  { key: 'frequencyPenalty', label: 'Frequency Penalty', type: 'slider', min: -2, max: 2, step: 0.1, description: 'Penalize tokens by frequency.' },
+   166→  { key: 'presencePenalty', label: 'Presence Penalty', type: 'slider', min: -2, max: 2, step: 0.1, description: 'Penalize tokens that have appeared at all.' },
+   167→  { key: 'maxTokens', label: 'Max Tokens', type: 'slider', min: 64, max: 8192, step: 64, description: 'Maximum tokens to generate per response.' },
+   168→  { key: 'seed', label: 'Seed', type: 'number', description: 'Fixed seed for reproducible output. Leave empty for random.' },
+   169→  { key: 'stop', label: 'Stop Sequences', type: 'stringArray', description: 'Comma-separated strings that halt generation.' },
+   170→  { key: 'stream', label: 'Stream Response', type: 'boolean', description: 'Stream tokens as they are generated.' },
+   171→]
+   172→
+   173→function formatNumber(value: number | undefined, step?: number): string {
+   174→  if (value === undefined || value === null || Number.isNaN(value)) return '—'
+   175→  if (step !== undefined && step < 1) {
+   176→    const decimals = Math.max(0, -Math.floor(Math.log10(step)))
+   177→    return value.toFixed(decimals)
+   178→  }
+   179→  return String(value)
+   180→}
+   181→
+   182→// ============================================================
+   183→// Main component (list + selection)
+   184→// ============================================================
+   185→
+   186→export function PresetsView() {
+   187→  const {
+   188→    data: presets,
+   189→    loading,
+   190→    error,
+   191→    reload: reloadPresets,
+   192→    setData: setPresets,
+   193→  } = useFetch<PresetListItem[]>('/api/presets')
+   194→
+   195→  const { data: apiProfiles } = useFetch<ApiProfileListItem[]>('/api/api-profiles')
+   196→
+   197→  const [selectedId, setSelectedId] = useState<string | null>(null)
+   198→  const [pendingDelete, setPendingDelete] = useState<PresetListItem | null>(null)
+   199→
+   200→  // Derive the effective selection: fall back to default/first preset.
+   201→  // Replaces what would have been a setState-in-effect.
+   202→  const effectiveSelectedId = useMemo(() => {
+   203→    if (!presets || presets.length === 0) return null
+   204→    if (selectedId && presets.find((p) => p.id === selectedId)) return selectedId
+   205→    const def = presets.find((p) => p.isDefault) ?? presets[0]
+   206→    return def.id
+   207→  }, [presets, selectedId])
+   208→
+   209→  const selectedPreset = useMemo(
+   210→    () => presets?.find((p) => p.id === effectiveSelectedId) ?? null,
+   211→    [presets, effectiveSelectedId],
+   212→  )
+   213→
+   214→  // Listen for seed completion (so the list refreshes after initial seed).
+   215→  useEffect(() => {
+   216→    const handler = () => reloadPresets()
+   217→    window.addEventListener('halcyon:seeded', handler)
+   218→    return () => window.removeEventListener('halcyon:seeded', handler)
+   219→  }, [reloadPresets])
+   220→
+   221→  // ---- Actions ----
+   222→
+   223→  const handleNew = useCallback(async () => {
+   224→    try {
+   225→      const created = await api<PresetListItem>('/api/presets', {
+   226→        method: 'POST',
+   227→        body: JSON.stringify({
+   228→          name: 'New Preset',
+   229→          providerType: 'zai',
+   230→          genParams: { ...DEFAULT_GEN_PARAMS },
+   231→          promptSettings: { ...DEFAULT_PROMPT_SETTINGS },
+   232→        }),
+   233→      })
+   234→      setPresets((prev) => (prev ? [created, ...prev] : [created]))
+   235→      setSelectedId(created.id)
+   236→      toast.success('Preset created')
+   237→    } catch (e) {
+   238→      toast.error(`Create failed: ${(e as Error).message}`)
+   239→    }
+   240→  }, [setPresets])
+   241→
+   242→  const handleDuplicate = useCallback(
+   243→    async (p: PresetListItem) => {
+   244→      try {
+   245→        const gp = parseGenParams(p.genParams)
+   246→        const ps = parsePromptSettings(p.promptSettings)
+   247→        const created = await api<PresetListItem>('/api/presets', {
+   248→          method: 'POST',
+   249→          body: JSON.stringify({
+   250→            name: `${p.name} (Copy)`,
+   251→            description: p.description,
+   252→            providerType: p.providerType ?? 'zai',
+   253→            modelName: p.modelName,
+   254→            apiProfileId: p.apiProfileId,
+   255→            genParams: gp,
+   256→            promptSettings: ps,
+   257→            isDefault: false,
+   258→          }),
+   259→        })
+   260→        setPresets((prev) => (prev ? [created, ...prev] : [created]))
+   261→        setSelectedId(created.id)
+   262→        toast.success('Preset duplicated')
+   263→      } catch (e) {
+   264→        toast.error(`Duplicate failed: ${(e as Error).message}`)
+   265→      }
+   266→    },
+   267→    [setPresets],
+   268→  )
+   269→
+   270→  const handleDeleteConfirm = useCallback(async () => {
+   271→    const target = pendingDelete
+   272→    if (!target) return
+   273→    const id = target.id
+   274→    setPendingDelete(null)
+   275→    try {
+   276→      await api(`/api/presets/${id}`, { method: 'DELETE' })
+   277→      setPresets((prev) => {
+   278→        const next = prev?.filter((p) => p.id !== id) ?? []
+   279→        if (selectedId === id) {
+   280→          setSelectedId(next.length ? next[0].id : null)
+   281→        }
+   282→        return next
+   283→      })
+   284→      toast.success('Preset deleted')
+   285→    } catch (e) {
+   286→      toast.error(`Delete failed: ${(e as Error).message}`)
+   287→      reloadPresets()
+   288→    }
+   289→  }, [pendingDelete, selectedId, setPresets, reloadPresets])
+   290→
+   291→  const handleSaved = useCallback(
+   292→    (updated: PresetListItem, wasDefault: boolean) => {
+   293→      setPresets((prev) => {
+   294→        if (!prev) return prev
+   295→        return prev.map((p) =>
+   296→          p.id === updated.id
+   297→            ? { ...p, ...updated, apiProfile: p.apiProfile }
+   298→            : wasDefault
+   299→              ? { ...p, isDefault: false }
+   300→              : p,
+   301→        )
+   302→      })
+   303→    },
+   304→    [setPresets],
+   305→  )
+   306→
+   307→  // ============================================================
+   308→  // Render
+   309→  // ============================================================
+   310→
+   311→  if (error) {
+   312→    return (
+   313→      <div className="flex h-full items-center justify-center p-8 text-center">
+   314→        <div>
+   315→          <p className="text-sm text-muted-foreground">
+   316→            Failed to load presets.
+   317→          </p>
+   318→          <Button variant="outline" size="sm" className="mt-3" onClick={reloadPresets}>
+   319→            Retry
+   320→          </Button>
+   321→        </div>
+   322→      </div>
+   323→    )
+   324→  }
+   325→
+   326→  return (
+   327→    <div className="flex h-full">
+   328→      {/* ---------------- Left: preset list ---------------- */}
+   329→      <aside className="flex w-[300px] shrink-0 flex-col border-r bg-muted/30">
+   330→        <div className="flex items-center justify-between gap-2 border-b p-3">
+   331→          <div className="flex items-center gap-2">
+   332→            <h2 className="text-sm font-semibold">Presets</h2>
+   333→            {presets && presets.length > 0 && (
+   334→              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+   335→                {presets.length}
+   336→              </Badge>
+   337→            )}
+   338→          </div>
+   339→          <Button size="sm" className="h-7 gap-1 px-2" onClick={handleNew}>
+   340→            <Plus className="size-3.5" />
+   341→            New
+   342→          </Button>
+   343→        </div>
+   344→
+   345→        <ScrollArea className="flex-1">
+   346→          <div className="p-2">
+   347→            {loading && !presets ? (
+   348→              <div className="space-y-2 p-1">
+   349→                {[0, 1, 2, 3].map((i) => (
+   350→                  <div
+   351→                    key={i}
+   352→                    className="h-14 animate-pulse rounded-md bg-muted"
+   353→                  />
+   354→                ))}
+   355→              </div>
+   356→            ) : !presets || presets.length === 0 ? (
+   357→              <div className="px-3 py-10 text-center">
+   358→                <p className="text-xs text-muted-foreground">
+   359→                  No presets yet.
+   360→                </p>
+   361→                <Button
+   362→                  size="sm"
+   363→                  variant="outline"
+   364→                  className="mt-3"
+   365→                  onClick={handleNew}
+   366→                >
+   367→                  <Plus className="size-3.5" />
+   368→                  Create one
+   369→                </Button>
+   370→              </div>
+   371→            ) : (
+   372→              <div className="space-y-1">
+   373→                {presets.map((p) => (
+   374→                  <PresetRow
+   375→                    key={p.id}
+   376→                    preset={p}
+   377→                    selected={p.id === effectiveSelectedId}
+   378→                    onSelect={() => setSelectedId(p.id)}
+   379→                    onDuplicate={() => handleDuplicate(p)}
+   380→                    onDelete={() => setPendingDelete(p)}
+   381→                  />
+   382→                ))}
+   383→              </div>
+   384→            )}
+   385→          </div>
+   386→        </ScrollArea>
+   387→      </aside>
+   388→
+   389→      {/* ---------------- Right: editor ---------------- */}
+   390→      <div className="flex min-w-0 flex-1 flex-col">
+   391→        {selectedPreset ? (
+   392→          <PresetEditor
+   393→            key={selectedPreset.id}
+   394→            preset={selectedPreset}
+   395→            apiProfiles={apiProfiles ?? []}
+   396→            onSaved={handleSaved}
+   397→            onReloadAfterError={reloadPresets}
+   398→          />
+   399→        ) : (
+   400→          <div className="flex h-full items-center justify-center p-8 text-center">
+   401→            <div>
+   402→              <p className="text-sm text-muted-foreground">
+   403→                Select a preset to edit, or create a new one.
+   404→              </p>
+   405→              <Button size="sm" className="mt-3" onClick={handleNew}>
+   406→                <Plus className="size-3.5" />
+   407→                New Preset
+   408→              </Button>
+   409→            </div>
+   410→          </div>
+   411→        )}
+   412→      </div>
+   413→
+   414→      {/* ---------------- Delete confirmation ---------------- */}
+   415→      {pendingDelete && (
+   416→        <DeleteDialog
+   417→          preset={pendingDelete}
+   418→          onCancel={() => setPendingDelete(null)}
+   419→          onConfirm={handleDeleteConfirm}
+   420→        />
+   421→      )}
+   422→    </div>
+   423→  )
+   424→}
+   425→
+   426→// ============================================================
+   427→// PresetEditor — child component, keyed by preset.id so it
+   428→// remounts (and re-hydrates form state) on selection change.
+   429→// ============================================================
+   430→
+   431→function PresetEditor({
+   432→  preset,
+   433→  apiProfiles,
+   434→  onSaved,
+   435→  onReloadAfterError,
+   436→}: {
+   437→  preset: PresetListItem
+   438→  apiProfiles: ApiProfileListItem[]
+   439→  onSaved: (updated: PresetListItem, wasDefault: boolean) => void
+   440→  onReloadAfterError: () => void
+   441→}) {
+   442→  const [formState, setFormState] = useState<FormState>(() =>
+   443→    hydrateFormState(preset),
+   444→  )
+   445→  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
+   446→
+   447→  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+   448→  const savedToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+   449→  const firstRender = useRef(true)
+   450→
+   451→  // ---- Save pipeline ----
+   452→
+   453→  const doSave = useCallback(
+   454→    async (state: FormState) => {
+   455→      try {
+   456→        const wasDefault = state.isDefault
+   457→        const body = {
+   458→          name: state.name || 'Untitled Preset',
+   459→          description: state.description.trim() ? state.description : null,
+   460→          isDefault: state.isDefault,
+   461→          providerType: state.providerType,
+   462→          modelName: state.modelName.trim() ? state.modelName.trim() : null,
+   463→          apiProfileId: state.apiProfileId || null,
+   464→          genParams: state.genParams,
+   465→          promptSettings: state.promptSettings,
+   466→        }
+   467→        const updated = await api<PresetListItem>(
+   468→          `/api/presets/${state.id}`,
+   469→          { method: 'PUT', body: JSON.stringify(body) },
+   470→        )
+   471→        onSaved(updated, wasDefault)
+   472→        setSaveStatus('saved')
+   473→        if (savedToastTimer.current) clearTimeout(savedToastTimer.current)
+   474→        savedToastTimer.current = setTimeout(() => {
+   475→          setSaveStatus((s) => (s === 'saved' ? 'idle' : s))
+   476→        }, 1500)
+   477→      } catch (e) {
+   478→        setSaveStatus('error')
+   479→        toast.error(`Save failed: ${(e as Error).message}`)
+   480→        onReloadAfterError()
+   481→      }
+   482→    },
+   483→    [onSaved, onReloadAfterError],
+   484→  )
+   485→
+   486→  // Debounced auto-save: fires 600ms after formState changes.
+   487→  // Skips the initial mount so we don't save unchanged data.
+   488→  // The 'saving' status is set in the patch helpers (event-handler context),
+   489→  // NOT in this effect body — calling setState synchronously in an effect
+   490→  // triggers cascading renders and is flagged by the linter.
+   491→  useEffect(() => {
+   492→    if (firstRender.current) {
+   493→      firstRender.current = false
+   494→      return
+   495→    }
+   496→    if (saveTimer.current) clearTimeout(saveTimer.current)
+   497→    saveTimer.current = setTimeout(() => {
+   498→      void doSave(formState)
+   499→    }, 600)
+   500→    return () => {
+   501→      if (saveTimer.current) clearTimeout(saveTimer.current)
+   502→    }
+   503→  }, [formState, doSave])
+   504→
+   505→  // Cleanup toast timer on unmount.
+   506→  useEffect(() => {
+   507→    return () => {
+   508→      if (savedToastTimer.current) clearTimeout(savedToastTimer.current)
+   509→    }
+   510→  }, [])
+   511→
+   512→  // ---- Patch helpers ----
+   513→
+   514→  const patch = useCallback(
+   515→    (partial: Partial<FormState>) => {
+   516→      setFormState((prev) => ({ ...prev, ...partial }))
+   517→      setSaveStatus('saving')
+   518→    },
+   519→    [],
+   520→  )
+   521→
+   522→  const patchGen = useCallback((partial: Partial<GenParams>) => {
+   523→    setFormState((prev) => ({
+   524→      ...prev,
+   525→      genParams: { ...prev.genParams, ...partial },
+   526→    }))
+   527→    setSaveStatus('saving')
+   528→  }, [])
+   529→
+   530→  const patchPrompt = useCallback((partial: Partial<PromptSettings>) => {
+   531→    setFormState((prev) => ({
+   532→      ...prev,
+   533→      promptSettings: { ...prev.promptSettings, ...partial },
+   534→    }))
+   535→    setSaveStatus('saving')
+   536→  }, [])
+   537→
+   538→  const handleResetGen = useCallback(() => {
+   539→    patchGen({ ...DEFAULT_GEN_PARAMS })
+   540→    toast.info('Generation parameters reset to defaults')
+   541→  }, [patchGen])
+   542→
+   543→  const handleResetPrompt = useCallback(() => {
+   544→    patchPrompt({ ...DEFAULT_PROMPT_SETTINGS })
+   545→    toast.info('Prompt settings reset to defaults')
+   546→  }, [patchPrompt])
+   547→
+   548→  // ---- Derived ----
+   549→
+   550→  const capabilities: ProviderCapabilities = useMemo(() => {
+   551→    return (
+   552→      PROVIDERS[formState.providerType]?.capabilities ??
+   553→      PROVIDERS.zai.capabilities
+   554→    )
+   555→  }, [formState.providerType])
+   556→
+   557→  // ============================================================
+   558→  // Render
+   559→  // ============================================================
+   560→
+   561→  return (
+   562→    <div className="flex min-w-0 flex-1 flex-col">
+   563→      {/* Editor header */}
+   564→      <div className="flex items-center justify-between gap-3 border-b px-5 py-3">
+   565→        <div className="min-w-0">
+   566→          <div className="flex items-center gap-2">
+   567→            <h2 className="truncate text-sm font-semibold">
+   568→              {formState.name || 'Untitled Preset'}
+   569→            </h2>
+   570→            {formState.isDefault && (
+   571→              <Badge variant="default" className="h-5 gap-1 px-1.5 text-[10px]">
+   572→                <Star className="size-2.5 fill-current" />
+   573→                Default
+   574→              </Badge>
+   575→            )}
+   576→          </div>
+   577→          <p className="truncate text-xs text-muted-foreground">
+   578→            {PROVIDERS[formState.providerType]?.label ?? formState.providerType}
+   579→            {formState.modelName ? ` · ${formState.modelName}` : ''}
+   580→          </p>
+   581→        </div>
+   582→        <SaveIndicator status={saveStatus} />
+   583→      </div>
+   584→
+   585→      <ScrollArea className="flex-1">
+   586→        <div className="mx-auto max-w-3xl space-y-4 p-5">
+   587→          {/* ----- General ----- */}
+   588→          <Card>
+   589→            <CardHeader>
+   590→              <CardTitle className="text-sm">General</CardTitle>
+   591→              <CardDescription>
+   592→                Basic identity and default status for this preset.
+   593→              </CardDescription>
+   594→            </CardHeader>
+   595→            <CardContent className="space-y-4">
+   596→              <div className="space-y-1.5">
+   597→                <Label htmlFor="preset-name">Name</Label>
+   598→                <Input
+   599→                  id="preset-name"
+   600→                  value={formState.name}
+   601→                  onChange={(e) => patch({ name: e.target.value })}
+   602→                  placeholder="e.g. Creative, Balanced, Precise"
+   603→                />
+   604→              </div>
+   605→              <div className="space-y-1.5">
+   606→                <Label htmlFor="preset-desc">Description</Label>
+   607→                <Textarea
+   608→                  id="preset-desc"
+   609→                  value={formState.description}
+   610→                  onChange={(e) => patch({ description: e.target.value })}
+   611→                  placeholder="What is this preset good for?"
+   612→                  className="min-h-20"
+   613→                />
+   614→              </div>
+   615→              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+   616→                <div className="space-y-0.5">
+   617→                  <Label htmlFor="preset-default">Default Preset</Label>
+   618→                  <p className="text-xs text-muted-foreground">
+   619→                    Used automatically when creating new chats without a
+   620→                    preset selected.
+   621→                  </p>
+   622→                </div>
+   623→                <Switch
+   624→                  id="preset-default"
+   625→                  checked={formState.isDefault}
+   626→                  onCheckedChange={(v) => patch({ isDefault: v })}
+   627→                />
+   628→              </div>
+   629→            </CardContent>
+   630→          </Card>
+   631→
+   632→          {/* ----- Provider & Model ----- */}
+   633→          <Card>
+   634→            <CardHeader>
+   635→              <CardTitle className="text-sm">Provider &amp; Model</CardTitle>
+   636→              <CardDescription>
+   637→                Choose the provider and model this preset targets. Can be
+   638→                overridden per chat.
+   639→              </CardDescription>
+   640→            </CardHeader>
+   641→            <CardContent className="space-y-4">
+   642→              <div className="grid gap-4 sm:grid-cols-2">
+   643→                <div className="space-y-1.5">
+   644→                  <Label>Provider Type</Label>
+   645→                  <Select
+   646→                    value={formState.providerType}
+   647→                    onValueChange={(v) =>
+   648→                      patch({ providerType: v as ProviderType })
+   649→                    }
+   650→                  >
+   651→                    <SelectTrigger className="w-full">
+   652→                      <SelectValue />
+   653→                    </SelectTrigger>
+   654→                    <SelectContent>
+   655→                      {(Object.keys(PROVIDERS) as ProviderType[]).map(
+   656→                        (key) => (
+   657→                          <SelectItem key={key} value={key}>
+   658→                            <div className="flex items-center gap-2">
+   659→                              <span>{PROVIDERS[key].label}</span>
+   660→                              {PROVIDERS[key].builtin && (
+   661→                                <Badge
+   662→                                  variant="secondary"
+   663→                                  className="h-4 px-1 text-[9px]"
+   664→                                >
+   665→                                  Built-in
+   666→                                </Badge>
+   667→                              )}
+   668→                            </div>
+   669→                          </SelectItem>
+   670→                        ),
+   671→                      )}
+   672→                    </SelectContent>
+   673→                  </Select>
+   674→                </div>
+   675→
+   676→                <div className="space-y-1.5">
+   677→                  <Label>API Profile</Label>
+   678→                  <Select
+   679→                    value={formState.apiProfileId ?? '__none__'}
+   680→                    onValueChange={(v) =>
+   681→                      patch({
+   682→                        apiProfileId: v === '__none__' ? null : v,
+   683→                      })
+   684→                    }
+   685→                  >
+   686→                    <SelectTrigger className="w-full">
+   687→                      <SelectValue placeholder="Inherit / none" />
+   688→                    </SelectTrigger>
+   689→                    <SelectContent>
+   690→                      <SelectItem value="__none__">
+   691→                        <span className="text-muted-foreground">
+   692→                          Inherit (none)
+   693→                        </span>
+   694→                      </SelectItem>
+   695→                      {apiProfiles
+   696→                        .filter(
+   697→                          (ap) =>
+   698→                            !formState.providerType ||
+   699→                            ap.provider === formState.providerType,
+   700→                        )
+   701→                        .map((ap) => (
+   702→                          <SelectItem key={ap.id} value={ap.id}>
+   703→                            <div className="flex items-center gap-2">
+   704→                              <span>{ap.name}</span>
+   705→                              {ap.isDefault && (
+   706→                                <Badge
+   707→                                  variant="secondary"
+   708→                                  className="h-4 px-1 text-[9px]"
+   709→                                >
+   710→                                  Default
+   711→                                </Badge>
+   712→                              )}
+   713→                              {!ap.hasKey && (
+   714→                                <Badge
+   715→                                  variant="outline"
+   716→                                  className="h-4 px-1 text-[9px] text-muted-foreground"
+   717→                                >
+   718→                                  No key
+   719→                                </Badge>
+   720→                              )}
+   721→                            </div>
+   722→                          </SelectItem>
+   723→                        ))}
+   724→                    </SelectContent>
+   725→                  </Select>
+   726→                </div>
+   727→              </div>
+   728→
+   729→              <div className="space-y-1.5">
+   730→                <Label htmlFor="preset-model">Model Name</Label>
+   731→                <Input
+   732→                  id="preset-model"
+   733→                  value={formState.modelName}
+   734→                  onChange={(e) => patch({ modelName: e.target.value })}
+   735→                  placeholder="e.g. glm-4.6, gpt-4o, claude-3-5-sonnet-20241022"
+   736→                />
+   737→                <div className="flex flex-wrap gap-1.5 pt-1">
+   738→                  {(
+   739→                    PROVIDERS[formState.providerType]?.defaultModels ?? []
+   740→                  ).map((m) => (
+   741→                    <button
+   742→                      key={m.id}
+   743→                      type="button"
+   744→                      onClick={() => patch({ modelName: m.id })}
+   745→                      className={cn(
+   746→                        'inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs transition-colors',
+   747→                        formState.modelName === m.id
+   748→                          ? 'border-primary bg-primary/10 text-foreground'
+   749→                          : 'border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground',
+   750→                      )}
+   751→                      title={`${m.name} · ${m.contextWindow.toLocaleString()} ctx`}
+   752→                    >
+   753→                      {m.name}
+   754→                    </button>
+   755→                  ))}
+   756→                </div>
+   757→                <p className="text-xs text-muted-foreground">
+   758→                  {PROVIDERS[formState.providerType]?.description}
+   759→                </p>
+   760→              </div>
+   761→            </CardContent>
+   762→          </Card>
+   763→
+   764→          {/* ----- Generation Parameters ----- */}
+   765→          <Card>
+   766→            <CardHeader>
+   767→              <div className="flex items-start justify-between gap-3">
+   768→                <div className="space-y-1">
+   769→                  <CardTitle className="text-sm">
+   770→                    Generation Parameters
+   771→                  </CardTitle>
+   772→                  <CardDescription>
+   773→                    Capability-aware. Showing parameters for{' '}
+   774→                    <span className="font-medium text-foreground">
+   775→                      {PROVIDERS[formState.providerType]?.label}
+   776→                    </span>
+   777→                    .
+   778→                  </CardDescription>
+   779→                </div>
+   780→                <Button
+   781→                  size="sm"
+   782→                  variant="outline"
+   783→                  className="h-7 gap-1.5 px-2 text-xs"
+   784→                  onClick={handleResetGen}
+   785→                >
+   786→                  <RotateCcw className="size-3" />
+   787→                  Reset
+   788→                </Button>
+   789→              </div>
+   790→            </CardHeader>
+   791→            <CardContent className="space-y-5">
+   792→              {GEN_FIELDS.map((field) => (
+   793→                <GenFieldRow
+   794→                  key={field.key}
+   795→                  field={field}
+   796→                  value={formState.genParams[field.key]}
+   797→                  supported={Boolean(
+   798→                    capabilities[field.key as keyof ProviderCapabilities],
+   799→                  )}
+   800→                  providerLabel={
+   801→                    PROVIDERS[formState.providerType]?.label ??
+   802→                    formState.providerType
+   803→                  }
+   804→                  onChange={(v) => patchGen({ [field.key]: v })}
+   805→                />
+   806→              ))}
+   807→            </CardContent>
+   808→          </Card>
+   809→
+   810→          {/* ----- Context / Prompt Settings ----- */}
+   811→          <Card>
+   812→            <CardHeader>
+   813→              <div className="flex items-start justify-between gap-3">
+   814→                <div className="space-y-1">
+   815→                  <CardTitle className="text-sm">
+   816→                    Context &amp; Prompt Settings
+   817→                  </CardTitle>
+   818→                  <CardDescription>
+   819→                    Controls how the prompt is assembled and trimmed before
+   820→                    sending to the model.
+   821→                  </CardDescription>
+   822→                </div>
+   823→                <Button
+   824→                  size="sm"
+   825→                  variant="outline"
+   826→                  className="h-7 gap-1.5 px-2 text-xs"
+   827→                  onClick={handleResetPrompt}
+   828→                >
+   829→                  <RotateCcw className="size-3" />
+   830→                  Reset
+   831→                </Button>
+   832→              </div>
+   833→            </CardHeader>
+   834→            <CardContent className="space-y-5">
+   835→              <div className="grid gap-4 sm:grid-cols-3">
+   836→                <div className="space-y-1.5">
+   837→                  <Label htmlFor="ps-context">Context Size</Label>
+   838→                  <Input
+   839→                    id="ps-context"
+   840→                    type="number"
+   841→                    min={1024}
+   842→                    step={1024}
+   843→                    value={formState.promptSettings.contextSize ?? ''}
+   844→                    onChange={(e) =>
+   845→                      patchPrompt({
+   846→                        contextSize: e.target.value
+   847→                          ? Number(e.target.value)
+   848→                          : undefined,
+   849→                      })
+   850→                    }
+   851→                  />
+   852→                  <p className="text-[11px] text-muted-foreground">
+   853→                    Max tokens used for context.
+   854→                  </p>
+   855→                </div>
+   856→                <div className="space-y-1.5">
+   857→                  <Label htmlFor="ps-resp">Max Response Tokens</Label>
+   858→                  <Input
+   859→                    id="ps-resp"
+   860→                    type="number"
+   861→                    min={64}
+   862→                    step={64}
+   863→                    value={formState.promptSettings.maxResponseTokens ?? ''}
+   864→                    onChange={(e) =>
+   865→                      patchPrompt({
+   866→                        maxResponseTokens: e.target.value
+   867→                          ? Number(e.target.value)
+   868→                          : undefined,
+   869→                      })
+   870→                    }
+   871→                  />
+   872→                  <p className="text-[11px] text-muted-foreground">
+   873→                    Reserved for the reply.
+   874→                  </p>
+   875→                </div>
+   876→                <div className="space-y-1.5">
+   877→                  <Label htmlFor="ps-recent">Recent Messages</Label>
+   878→                  <Input
+   879→                    id="ps-recent"
+   880→                    type="number"
+   881→                    min={0}
+   882→                    step={1}
+   883→                    value={formState.promptSettings.recentMessages ?? ''}
+   884→                    onChange={(e) =>
+   885→                      patchPrompt({
+   886→                        recentMessages: e.target.value
+   887→                          ? Number(e.target.value)
+   888→                          : undefined,
+   889→                      })
+   890→                    }
+   891→                  />
+   892→                  <p className="text-[11px] text-muted-foreground">
+   893→                    Conversation turns to include.
+   894→                  </p>
+   895→                </div>
+   896→              </div>
+   897→
+   898→              <div className="space-y-2">
+   899→                <Label>Include in Prompt</Label>
+   900→                <div className="grid gap-2 sm:grid-cols-2">
+   901→                  <IncludeToggle
+   902→                    label="Persona"
+   903→                    description="User persona card."
+   904→                    checked={!!formState.promptSettings.includePersona}
+   905→                    onChange={(v) => patchPrompt({ includePersona: v })}
+   906→                  />
+   907→                  <IncludeToggle
+   908→                    label="Scenario"
+   909→                    description="Character scenario & setting."
+   910→                    checked={!!formState.promptSettings.includeScenario}
+   911→                    onChange={(v) => patchPrompt({ includeScenario: v })}
+   912→                  />
+   913→                  <IncludeToggle
+   914→                    label="Lore"
+   915→                    description="Lorebook entries (keyword-activated)."
+   916→                    checked={!!formState.promptSettings.includeLore}
+   917→                    onChange={(v) => patchPrompt({ includeLore: v })}
+   918→                  />
+   919→                  <IncludeToggle
+   920→                    label="Memory"
+   921→                    description="Summaries & pinned facts."
+   922→                    checked={!!formState.promptSettings.includeMemory}
+   923→                    onChange={(v) => patchPrompt({ includeMemory: v })}
+   924→                  />
+   925→                </div>
+   926→              </div>
+   927→            </CardContent>
+   928→          </Card>
+   929→        </div>
+   930→      </ScrollArea>
+   931→    </div>
+   932→  )
+   933→}
+   934→
+   935→// ============================================================
+   936→// Sub-components
+   937→// ============================================================
+   938→
+   939→function PresetRow({
+   940→  preset,
+   941→  selected,
+   942→  onSelect,
+   943→  onDuplicate,
+   944→  onDelete,
+   945→}: {
+   946→  preset: PresetListItem
+   947→  selected: boolean
+   948→  onSelect: () => void
+   949→  onDuplicate: () => void
+   950→  onDelete: () => void
+   951→}) {
+   952→  const providerLabel =
+   953→    PROVIDERS[preset.providerType as ProviderType]?.label ??
+   954→    preset.providerType ??
+   955→    'No provider'
+   956→
+   957→  return (
+   958→    <div
+   959→      className={cn(
+   960→        'group relative flex cursor-pointer flex-col gap-0.5 rounded-md border px-3 py-2 transition-colors',
+   961→        selected
+   962→          ? 'border-primary bg-primary/5'
+   963→          : 'border-transparent hover:bg-accent/50',
+   964→      )}
+   965→      onClick={onSelect}
+   966→    >
+   967→      <div className="flex items-center gap-2 pr-12">
+   968→        <span className="truncate text-sm font-medium">
+   969→          {preset.name}
+   970→        </span>
+   971→        {preset.isDefault && (
+   972→          <Star className="size-3 shrink-0 fill-primary text-primary" />
+   973→        )}
+   974→      </div>
+   975→      <p className="truncate text-xs text-muted-foreground">
+   976→        {providerLabel}
+   977→        {preset.modelName ? ` · ${preset.modelName}` : ''}
+   978→      </p>
+   979→
+   980→      {/* Hover actions */}
+   981→      <div
+   982→        className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 data-[selected=true]:opacity-100"
+   983→        data-selected={selected}
+   984→        onClick={(e) => e.stopPropagation()}
+   985→      >
+   986→        <Tooltip>
+   987→          <TooltipTrigger asChild>
+   988→            <Button
+   989→              size="icon"
+   990→              variant="ghost"
+   991→              className="size-6"
+   992→              onClick={onDuplicate}
+   993→            >
+   994→              <Copy className="size-3" />
+   995→            </Button>
+   996→          </TooltipTrigger>
+   997→          <TooltipContent>Duplicate</TooltipContent>
+   998→        </Tooltip>
+   999→        <Tooltip>
+  1000→          <TooltipTrigger asChild>
+  1001→            <Button
+  1002→              size="icon"
+  1003→              variant="ghost"
+  1004→              className="size-6 text-muted-foreground hover:text-destructive"
+  1005→              onClick={onDelete}
+  1006→            >
+  1007→              <Trash2 className="size-3" />
+  1008→            </Button>
+  1009→          </TooltipTrigger>
+  1010→          <TooltipContent>Delete</TooltipContent>
+  1011→        </Tooltip>
+  1012→      </div>
+  1013→    </div>
+  1014→  )
+  1015→}
+  1016→
+  1017→function SaveIndicator({ status }: { status: SaveStatus }) {
+  1018→  if (status === 'idle') return null
+  1019→  return (
+  1020→    <div className="flex items-center gap-1.5 text-xs">
+  1021→      {status === 'saving' && (
+  1022→        <>
+  1023→          <Loader2 className="size-3 animate-spin text-muted-foreground" />
+  1024→          <span className="text-muted-foreground">Saving…</span>
+  1025→        </>
+  1026→      )}
+  1027→      {status === 'saved' && (
+  1028→        <>
+  1029→          <Check className="size-3 text-emerald-500" />
+  1030→          <span className="text-muted-foreground">Saved</span>
+  1031→        </>
+  1032→      )}
+  1033→      {status === 'error' && (
+  1034→        <span className="text-destructive">Save failed</span>
+  1035→      )}
+  1036→    </div>
+  1037→  )
+  1038→}
+  1039→
+  1040→function GenFieldRow({
+  1041→  field,
+  1042→  value,
+  1043→  supported,
+  1044→  providerLabel,
+  1045→  onChange,
+  1046→}: {
+  1047→  field: GenFieldConfig
+  1048→  value: unknown
+  1049→  supported: boolean
+  1050→  providerLabel: string
+  1051→  onChange: (v: GenParams[keyof GenParams]) => void
+  1052→}) {
+  1053→  const control = (
+  1054→    <div
+  1055→      className={cn(
+  1056→        'transition-opacity',
+  1057→        !supported && 'pointer-events-none opacity-40',
+  1058→      )}
+  1059→    >
+  1060→      <GenControl
+  1061→        field={field}
+  1062→        value={value}
+  1063→        onChange={onChange}
+  1064→        disabled={!supported}
+  1065→      />
+  1066→    </div>
+  1067→  )
+  1068→
+  1069→  return (
+  1070→    <div className="space-y-1.5">
+  1071→      <div className="flex items-baseline justify-between gap-3">
+  1072→        <div className="flex items-center gap-2">
+  1073→          <Label className="text-sm">{field.label}</Label>
+  1074→          {!supported && (
+  1075→            <Badge
+  1076→              variant="outline"
+  1077→              className="h-4 px-1 text-[9px] text-muted-foreground"
+  1078→            >
+  1079→              N/A
+  1080→            </Badge>
+  1081→          )}
+  1082→        </div>
+  1083→        {field.type === 'slider' && (
+  1084→          <span className="font-mono text-xs text-muted-foreground">
+  1085→            {formatNumber(value as number | undefined, field.step)}
+  1086→          </span>
+  1087→        )}
+  1088→      </div>
+  1089→
+  1090→      {supported ? (
+  1091→        control
+  1092→      ) : (
+  1093→        <Tooltip>
+  1094→          <TooltipTrigger asChild>
+  1095→            <div className="block w-full">{control}</div>
+  1096→          </TooltipTrigger>
+  1097→          <TooltipContent>Not supported by {providerLabel}</TooltipContent>
+  1098→        </Tooltip>
+  1099→      )}
+  1100→
+  1101→      {field.description && supported && (
+  1102→        <p className="text-[11px] text-muted-foreground">{field.description}</p>
+  1103→      )}
+  1104→    </div>
+  1105→  )
+  1106→}
+  1107→
+  1108→function GenControl({
+  1109→  field,
+  1110→  value,
+  1111→  onChange,
+  1112→  disabled,
+  1113→}: {
+  1114→  field: GenFieldConfig
+  1115→  value: unknown
+  1116→  onChange: (v: GenParams[keyof GenParams]) => void
+  1117→  disabled: boolean
+  1118→}) {
+  1119→  if (field.type === 'slider') {
+  1120→    const v =
+  1121→      typeof value === 'number' && !Number.isNaN(value)
+  1122→        ? value
+  1123→        : (field.min ?? 0)
+  1124→    return (
+  1125→      <Slider
+  1126→        value={[v]}
+  1127→        min={field.min}
+  1128→        max={field.max}
+  1129→        step={field.step}
+  1130→        disabled={disabled}
+  1131→        onValueChange={(arr) => onChange(arr[0])}
+  1132→      />
+  1133→    )
+  1134→  }
+  1135→
+  1136→  if (field.type === 'number') {
+  1137→    // seed — can be undefined (random)
+  1138→    const numVal = typeof value === 'number' ? value : NaN
+  1139→    return (
+  1140→      <div className="flex items-center gap-2">
+  1141→        <Input
+  1142→          type="number"
+  1143→          disabled={disabled}
+  1144→          value={Number.isNaN(numVal) ? '' : String(numVal)}
+  1145→          onChange={(e) => {
+  1146→            const t = e.target.value.trim()
+  1147→            if (t === '') onChange(undefined as never)
+  1148→            else {
+  1149→              const n = Number(t)
+  1150→              if (!Number.isNaN(n)) onChange(n as never)
+  1151→            }
+  1152→          }}
+  1153→          placeholder="Random"
+  1154→          className="h-8 max-w-[160px]"
+  1155→        />
+  1156→        {field.key === 'seed' && !Number.isNaN(numVal) && !disabled && (
+  1157→          <Button
+  1158→            size="sm"
+  1159→            variant="ghost"
+  1160→            className="h-8 px-2 text-xs"
+  1161→            onClick={() => onChange(undefined as never)}
+  1162→          >
+  1163→            Clear
+  1164→          </Button>
+  1165→        )}
+  1166→      </div>
+  1167→    )
+  1168→  }
+  1169→
+  1170→  if (field.type === 'stringArray') {
+  1171→    const arr = Array.isArray(value) ? (value as string[]) : []
+  1172→    return (
+  1173→      <Input
+  1174→        disabled={disabled}
+  1175→        value={arr.join(', ')}
+  1176→        onChange={(e) => {
+  1177→          const next = e.target.value
+  1178→            .split(',')
+  1179→            .map((s) => s.trim())
+  1180→            .filter(Boolean)
+  1181→          onChange(next as never)
+  1182→        }}
+  1183→        placeholder="stop1, stop2, stop3"
+  1184→        className="h-8"
+  1185→      />
+  1186→    )
+  1187→  }
+  1188→
+  1189→  if (field.type === 'boolean') {
+  1190→    const checked = Boolean(value)
+  1191→    return (
+  1192→      <div className="flex items-center gap-2">
+  1193→        <Switch
+  1194→          checked={checked}
+  1195→          disabled={disabled}
+  1196→          onCheckedChange={(v) => onChange(v as never)}
+  1197→        />
+  1198→        <span className="text-xs text-muted-foreground">
+  1199→          {checked ? 'Enabled' : 'Disabled'}
+  1200→        </span>
+  1201→      </div>
+  1202→    )
+  1203→  }
+  1204→
+  1205→  return null
+  1206→}
+  1207→
+  1208→function IncludeToggle({
+  1209→  label,
+  1210→  description,
+  1211→  checked,
+  1212→  onChange,
+  1213→}: {
+  1214→  label: string
+  1215→  description: string
+  1216→  checked: boolean
+  1217→  onChange: (v: boolean) => void
+  1218→}) {
+  1219→  return (
+  1220→    <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+  1221→      <div className="min-w-0 space-y-0.5">
+  1222→        <Label className="text-sm">{label}</Label>
+  1223→        <p className="text-[11px] text-muted-foreground">{description}</p>
+  1224→      </div>
+  1225→      <Switch checked={checked} onCheckedChange={onChange} />
+  1226→    </div>
+  1227→  )
+  1228→}
+  1229→
+  1230→function DeleteDialog({
+  1231→  preset,
+  1232→  onCancel,
+  1233→  onConfirm,
+  1234→}: {
+  1235→  preset: PresetListItem
+  1236→  onCancel: () => void
+  1237→  onConfirm: () => void
+  1238→}) {
+  1239→  return (
+  1240→    <div
+  1241→      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+  1242→      onClick={onCancel}
+  1243→    >
+  1244→      <div
+  1245→        className="w-full max-w-sm rounded-lg border bg-background p-5 shadow-lg"
+  1246→        onClick={(e) => e.stopPropagation()}
+  1247→      >
+  1248→        <h3 className="text-base font-semibold">Delete preset?</h3>
+  1249→        <p className="mt-2 text-sm text-muted-foreground">
+  1250→          This will permanently delete{' '}
+  1251→          <span className="font-medium text-foreground">{preset.name}</span>.
+  1252→          Chats using this preset will fall back to the default.
+  1253→        </p>
+  1254→        <div className="mt-5 flex justify-end gap-2">
+  1255→          <Button variant="outline" size="sm" onClick={onCancel}>
+  1256→            Cancel
+  1257→          </Button>
+  1258→          <Button variant="destructive" size="sm" onClick={onConfirm}>
+  1259→            <Trash2 className="size-3.5" />
+  1260→            Delete
+  1261→          </Button>
+  1262→        </div>
+  1263→      </div>
+  1264→    </div>
+  1265→  )
+  1266→}
+  1267→
