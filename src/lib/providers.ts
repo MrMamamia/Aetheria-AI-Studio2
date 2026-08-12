@@ -124,12 +124,10 @@ export const PROVIDERS: Record<ProviderType, ProviderMeta> = {
     defaultModels: [
       { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', contextWindow: 128000 },
       { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', contextWindow: 128000 },
-      { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', contextWindow: 128000 },
-      { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B', contextWindow: 128000 },
-      { id: 'openai/gpt-oss-safeguard-20b', name: 'GPT-OSS Safety 20B', contextWindow: 128000 },
-      { id: 'qwen/qwen3.6-27b', name: 'Qwen 3.6 27B', contextWindow: 128000 },
-      { id: 'minimaxai/minimax-m2.7', name: 'MiniMax M2.7', contextWindow: 128000 },
-      { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 70B', contextWindow: 128000 },
+      { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B (reasoning)', contextWindow: 128000 },
+      { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B (reasoning)', contextWindow: 128000 },
+      { id: 'qwen/qwen3-32b', name: 'Qwen 3 32B (reasoning)', contextWindow: 128000 },
+      { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 70B (reasoning)', contextWindow: 128000 },
       { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', contextWindow: 32768 },
     ],
     builtin: false,
@@ -385,4 +383,48 @@ export const DEFAULT_PRESETS = [
 export function estimateTokens(text: string): number {
   if (!text) return 0
   return Math.ceil(text.length / 4)
+}
+
+/**
+ * Detect whether a model ID refers to a "reasoning" model — i.e. one that
+ * emits chain-of-thought in `delta.reasoning_content` (or similar) BEFORE
+ * producing visible content. These models are slower and often produce
+ * empty messages when max_tokens is too low, so we warn users in the UI.
+ *
+ * Patterns matched (case-insensitive, against the model id):
+ *  - deepseek-r1, deepseek-reasoner
+ *  - o1, o3, o4 (OpenAI reasoning family)
+ *  - gpt-oss (OpenAI open-weight reasoning models on Groq)
+ *  - qwen3- (Qwen 3 thinking models — note: thinking can be disabled,
+ *    but we still warn since the default is thinking-on)
+ *  - anything containing "reason", "reasoner", "thinking"
+ *
+ * Instruct models (llama-3.3, mixtral, gpt-4o, gemini-2.5, etc.) are NOT
+ * reasoning models and return content normally in `delta.content`.
+ */
+export function isReasoningModel(modelId: string | null | undefined): boolean {
+  if (!modelId) return false
+  const id = modelId.toLowerCase()
+  // Substring matches (catches both bare ids and provider-prefixed ids like
+  // "openai/gpt-oss-120b" or "deepseek/deepseek-r1")
+  if (id.includes('gpt-oss')) return true
+  if (id.includes('deepseek-r1')) return true
+  if (id.includes('deepseek-reasoner')) return true
+  if (id.includes('qwen3')) return true
+  if (id.includes('sonar-reasoning')) return true
+  // OpenAI o-series reasoning models (o1, o3, o4 — but not "o1enai" etc.)
+  // Match either at start of string or after a "/"
+  if (/(^|\/)o[134](\b|-|$)/.test(id)) return true
+  // Generic reasoning labels
+  if (id.includes('reason')) return true
+  if (id.includes('thinking')) return true
+  return false
+}
+
+/**
+ * Human-readable advice shown to users when they pick a reasoning model.
+ * Used by the API Manager banner.
+ */
+export function reasoningModelAdvice(modelId: string): string {
+  return `This is a reasoning model — it produces chain-of-thought before its reply, which is slower and consumes more tokens. For character roleplay and chat, an instruct model (like llama-3.3-70b, gpt-4o, gemini-2.5-flash) is usually faster and more directly in-character. Reasoning models are great for logic, math, and complex analysis — not so much for flowing dialogue.`
 }

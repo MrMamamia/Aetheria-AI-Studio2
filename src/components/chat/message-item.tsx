@@ -24,6 +24,7 @@ interface MessageItemProps {
   isStreaming?: boolean
   streamingContent?: string
   streamingReasoning?: string
+  showReasoning?: boolean
   onRegenerate?: () => void
   onContinue?: () => void
   onBranch?: () => void
@@ -38,6 +39,7 @@ export function MessageItem({
   isStreaming,
   streamingContent,
   streamingReasoning,
+  showReasoning,
   onRegenerate,
   onContinue,
   onBranch,
@@ -47,7 +49,7 @@ export function MessageItem({
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
-  const [showReasoning, setShowReasoning] = useState(false)
+  const [reasoningOpen, setReasoningOpen] = useState(false)
   const isUser = message.role === 'user'
   const content = isStreaming ? (streamingContent || '') : message.content
   const reasoning = isStreaming ? (streamingReasoning || '') : (message.reasoning || '')
@@ -175,21 +177,21 @@ export function MessageItem({
               </div>
             ) : (
               <div className="w-full space-y-2">
-                {/* Reasoning / thinking block (collapsible) */}
-                {reasoning && !isUser && (
+                {/* Reasoning / thinking block (collapsible, debug-mode only) */}
+                {showReasoning && reasoning && !isUser && (
                   <div className="mb-1 rounded-lg border border-dashed bg-muted/40">
                     <button
                       type="button"
-                      onClick={() => setShowReasoning((v) => !v)}
+                      onClick={() => setReasoningOpen((v) => !v)}
                       className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
                     >
                       <Brain className="h-3 w-3" />
                       {isStreaming ? 'Thinking…' : 'Reasoning'}
                       <ChevronDown
-                        className={cn('ml-auto h-3 w-3 transition-transform', showReasoning && 'rotate-180')}
+                        className={cn('ml-auto h-3 w-3 transition-transform', reasoningOpen && 'rotate-180')}
                       />
                     </button>
-                    {showReasoning && (
+                    {reasoningOpen && (
                       <div className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-t border-dashed px-2.5 py-2 text-[11px] text-muted-foreground">
                         {reasoning}
                       </div>

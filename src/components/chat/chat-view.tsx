@@ -30,8 +30,10 @@ export function ChatView() {
     settings?.sendMode === 'ctrl-enter' ? 'ctrl-enter' : 'enter'
   const showTokenCounts =
     settings?.showTokenCounts === 'true' || settings?.showTokenCounts === true
+  const showReasoning =
+    settings?.debugMode === 'true' || settings?.debugMode === true
 
-  const { chat, messages, loading, generate, stop, streaming, streamingId, streamingContent, reloadMessages } = useChat(activeChatId)
+  const { chat, messages, loading, generate, stop, streaming, streamingId, streamingContent, streamingReasoning, reloadMessages } = useChat(activeChatId)
 
   const character = chat?.character
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -156,6 +158,7 @@ export function ChatView() {
                 isStreaming={isStreamingThis}
                 streamingContent={isStreamingThis ? streamingContent : undefined}
                 streamingReasoning={isStreamingThis ? streamingReasoning : undefined}
+                showReasoning={showReasoning}
                 onRegenerate={() => handleRegenerate(m)}
                 onContinue={handleContinue}
                 onBranch={() => handleBranch(m)}
@@ -171,7 +174,7 @@ export function ChatView() {
               <Avatar name={character?.name || 'AI'} src={character?.avatar} size="md" />
               <div className="flex flex-col">
                 <span className="mb-1 text-xs font-medium">{character?.name}</span>
-                {streamingReasoning && (
+                {showReasoning && streamingReasoning && (
                   <div className="mb-1 max-w-md rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                     <div className="mb-0.5 font-medium opacity-70">Thinking…</div>
                     <div className="whitespace-pre-wrap break-words opacity-80">{streamingReasoning.slice(-400)}</div>
@@ -191,7 +194,7 @@ export function ChatView() {
               <Avatar name={character?.name || 'AI'} src={character?.avatar} size="md" />
               <div className="flex flex-col">
                 <span className="mb-1 text-xs font-medium">{character?.name}</span>
-                {streamingReasoning && (
+                {showReasoning && streamingReasoning && (
                   <div className="mb-1 max-w-md rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                     <div className="mb-0.5 font-medium opacity-70">Thinking…</div>
                     <div className="whitespace-pre-wrap break-words opacity-80">{streamingReasoning.slice(-400)}</div>

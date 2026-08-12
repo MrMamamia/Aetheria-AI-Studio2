@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, useFetch } from '@/hooks/use-fetch'
-import { PROVIDERS } from '@/lib/providers'
+import { PROVIDERS, isReasoningModel, reasoningModelAdvice } from '@/lib/providers'
 import type { ProviderCapabilities, ProviderType } from '@/lib/types'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -1014,6 +1015,21 @@ export function ApiManager() {
                                 built-in catalog.
                               </p>
                             )}
+                            {/* Advice banner for reasoning models */}
+                            {draft.modelName &&
+                              isReasoningModel(draft.modelName) && (
+                                <div className="flex gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50 p-3 text-xs dark:border-amber-700/50 dark:bg-amber-950/30">
+                                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                                  <div className="space-y-1">
+                                    <p className="font-medium text-amber-900 dark:text-amber-200">
+                                      Reasoning model detected
+                                    </p>
+                                    <p className="text-amber-800 dark:text-amber-300/90">
+                                      {reasoningModelAdvice(draft.modelName)}
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
                           </div>
                         </>
                       )}
