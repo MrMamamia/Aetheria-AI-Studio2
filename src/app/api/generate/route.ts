@@ -268,6 +268,7 @@ export async function POST(req: NextRequest) {
         }
 
         let full = ''
+        let reasoningFull = ''
         let done = false
         const start = Date.now()
 
@@ -276,6 +277,7 @@ export async function POST(req: NextRequest) {
           model?: string
           provider: ProviderType
           latencyMs: number
+          reasoning?: string
         }) => {
           if (!assistantMessageId) return
           try {
@@ -284,30 +286,33 @@ export async function POST(req: NextRequest) {
               where: { id: assistantMessageId },
             })
             const swipes = existing ? parseStringArray(existing.swipes) : []
-            // For 'continue' we replace existing content; otherwise we also append a swipe.
+            // If the model produced only reasoning and no content, persist
+            // the reasoning AS the content so the message isn't blank.
+            // The raw reasoning is still stored in the `reasoning` column
+            // for the collapsible "thinking" UI.
+            const effectiveContent = content || meta.reasoning || ''
             if (mode === 'continue') {
-              // Replace last swipe if present, else push
               if (swipes.length === 0) {
-                swipes.push(content)
+                swipes.push(effectiveContent)
               } else {
-                swipes[swipes.length - 1] = content
+                swipes[swipes.length - 1] = effectiveContent
               }
             } else {
-              // Fresh assistant message — first swipe
               if (swipes.length === 0) {
-                swipes.push(content)
+                swipes.push(effectiveContent)
               } else {
-                swipes[swipes.length - 1] = content
+                swipes[swipes.length - 1] = effectiveContent
               }
             }
             await db.message.update({
               where: { id: assistantMessageId },
               data: {
-                content,
+                content: effectiveContent,
                 tokens: meta.tokens,
                 latencyMs: meta.latencyMs,
                 model: meta.model,
                 provider: meta.provider,
+                reasoning: meta.reasoning || null,
                 swipes: JSON.stringify(swipes),
                 swipeIndex: Math.max(0, swipes.length - 1),
               },
@@ -339,6 +344,11 @@ export async function POST(req: NextRequest) {
               full += token
               send({ type: 'token', token })
             },
+            onReasoning: (token) => {
+              if (done) return
+              reasoningFull += token
+              send({ type: 'reasoning_token', token })
+            },
             onDone: async (fullContent, meta) => {
               if (done) return
               done = true
@@ -348,6 +358,7 @@ export async function POST(req: NextRequest) {
                 type: 'done',
                 messageId: assistantMessageId,
                 content: full,
+                reasoning: meta.reasoning || reasoningFull || undefined,
                 meta,
               })
               try {
@@ -359,13 +370,14 @@ export async function POST(req: NextRequest) {
             onError: async (err) => {
               if (done) return
               done = true
-              // Persist whatever was generated
-              if (full) {
+              // Persist whatever was generated (content OR reasoning)
+              if (full || reasoningFull) {
                 await persist(full, {
-                  tokens: estimateTokens(full),
+                  tokens: estimateTokens(full || reasoningFull),
                   model,
                   provider,
                   latencyMs: Date.now() - start,
+                  reasoning: reasoningFull || undefined,
                 })
               }
               send({ type: 'error', error: err.message })
@@ -379,12 +391,13 @@ export async function POST(req: NextRequest) {
         ).catch(async (err) => {
           if (done) return
           done = true
-          if (full) {
+          if (full || reasoningFull) {
             await persist(full, {
-              tokens: estimateTokens(full),
+              tokens: estimateTokens(full || reasoningFull),
               model,
               provider,
               latencyMs: Date.now() - start,
+              reasoning: reasoningFull || undefined,
             })
           }
           send({ type: 'error', error: (err as Error).message })

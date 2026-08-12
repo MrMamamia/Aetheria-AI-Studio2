@@ -17,6 +17,7 @@ export interface ChatMessage {
   provider?: string | null
   tokens?: number | null
   latencyMs?: number | null
+  reasoning?: string | null
   branchLabel?: string | null
   isPinned: boolean
   isImportant: boolean
@@ -35,6 +36,7 @@ export function useChat(chatId: string | null) {
   const [streaming, setStreaming] = useState(false)
   const [streamingId, setStreamingId] = useState<string | null>(null)
   const [streamingContent, setStreamingContent] = useState('')
+  const [streamingReasoning, setStreamingReasoning] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const setGenerating = useAppStore((s) => s.setGenerating)
 
@@ -47,6 +49,7 @@ export function useChat(chatId: string | null) {
       setStreaming(true)
       setGenerating(true)
       setStreamingContent('')
+      setStreamingReasoning('')
       const ctrl = new AbortController()
       abortRef.current = ctrl
 
@@ -120,9 +123,12 @@ export function useChat(chatId: string | null) {
                 }
                 fullContent += evt.token
                 setStreamingContent(fullContent)
+              } else if (evt.type === 'reasoning_token') {
+                setStreamingReasoning((prev) => prev + evt.token)
               } else if (evt.type === 'done') {
                 setStreamingId(null)
                 setStreamingContent('')
+                setStreamingReasoning('')
                 await reloadMessages()
                 await reloadChat()
                 if (evt.meta) {
@@ -146,6 +152,7 @@ export function useChat(chatId: string | null) {
         setGenerating(false)
         setStreamingId(null)
         setStreamingContent('')
+        setStreamingReasoning('')
         abortRef.current = null
       }
     },
@@ -165,6 +172,7 @@ export function useChat(chatId: string | null) {
     streaming,
     streamingId,
     streamingContent,
+    streamingReasoning,
     reloadMessages,
     reloadChat,
   }

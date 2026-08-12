@@ -112,6 +112,8 @@ model Message {
   provider    String?
   tokens      Int?
   latencyMs   Int?
+  // Reasoning content (for reasoning models like DeepSeek R1, GPT-OSS, Qwen3)
+  reasoning   String?
   // Branch metadata
   branchLabel String?
   isPinned     Boolean  @default(false)

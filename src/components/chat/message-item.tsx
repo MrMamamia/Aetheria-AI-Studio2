@@ -11,7 +11,7 @@ import { api } from '@/hooks/use-fetch'
 import { toast } from 'sonner'
 import {
   Copy, Pencil, RefreshCw, GitBranch, Trash2, Check, X, ChevronLeft,
-  ChevronRight, Pin, Star, CornerDownRight,
+  ChevronRight, ChevronDown, Pin, Star, CornerDownRight, Brain,
 } from 'lucide-react'
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger,
@@ -23,6 +23,7 @@ interface MessageItemProps {
   character: any
   isStreaming?: boolean
   streamingContent?: string
+  streamingReasoning?: string
   onRegenerate?: () => void
   onContinue?: () => void
   onBranch?: () => void
@@ -36,6 +37,7 @@ export function MessageItem({
   character,
   isStreaming,
   streamingContent,
+  streamingReasoning,
   onRegenerate,
   onContinue,
   onBranch,
@@ -45,8 +47,10 @@ export function MessageItem({
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false)
   const [editContent, setEditContent] = useState(message.content)
+  const [showReasoning, setShowReasoning] = useState(false)
   const isUser = message.role === 'user'
   const content = isStreaming ? (streamingContent || '') : message.content
+  const reasoning = isStreaming ? (streamingReasoning || '') : (message.reasoning || '')
 
   const copy = () => {
     navigator.clipboard.writeText(message.content)
@@ -170,22 +174,47 @@ export function MessageItem({
                 </div>
               </div>
             ) : (
-              <div
-                className={cn(
-                  'rounded-2xl px-3.5 py-2.5 text-sm',
-                  isUser
-                    ? 'bg-primary text-primary-foreground rounded-tr-sm'
-                    : 'bg-card border rounded-tl-sm',
-                  isStreaming && 'stream-caret',
+              <div className="w-full space-y-2">
+                {/* Reasoning / thinking block (collapsible) */}
+                {reasoning && !isUser && (
+                  <div className="mb-1 rounded-lg border border-dashed bg-muted/40">
+                    <button
+                      type="button"
+                      onClick={() => setShowReasoning((v) => !v)}
+                      className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+                    >
+                      <Brain className="h-3 w-3" />
+                      {isStreaming ? 'Thinking…' : 'Reasoning'}
+                      <ChevronDown
+                        className={cn('ml-auto h-3 w-3 transition-transform', showReasoning && 'rotate-180')}
+                      />
+                    </button>
+                    {showReasoning && (
+                      <div className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words border-t border-dashed px-2.5 py-2 text-[11px] text-muted-foreground">
+                        {reasoning}
+                      </div>
+                    )}
+                  </div>
                 )}
-              >
-                {content ? (
-                  <Markdown content={content} />
-                ) : isStreaming ? (
-                  <span className="text-muted-foreground">Thinking…</span>
-                ) : (
-                  <span className="text-muted-foreground italic">Empty message</span>
-                )}
+                <div
+                  className={cn(
+                    'rounded-2xl px-3.5 py-2.5 text-sm',
+                    isUser
+                      ? 'bg-primary text-primary-foreground rounded-tr-sm'
+                      : 'bg-card border rounded-tl-sm',
+                    isStreaming && 'stream-caret',
+                  )}
+                >
+                  {content ? (
+                    <Markdown content={content} />
+                  ) : isStreaming ? (
+                    <span className="text-muted-foreground">
+                      {reasoning ? 'Composing response…' : 'Thinking…'}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground italic">Empty message</span>
+                  )}
+                </div>
               </div>
             )}
 

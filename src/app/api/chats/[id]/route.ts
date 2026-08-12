@@ -22,13 +22,41 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     if (!chat) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
-    // Strip apiKey from any embedded apiProfile
-    if (chat.apiProfile) {
-      const { apiKey: _k, ...safe } = chat.apiProfile
+
+    // Resolve the EFFECTIVE api profile for display. If the chat has no
+    // apiProfileId linked (or the linked profile was deleted), fall back to
+    // the preset's profile, then the default profile, then any profile.
+    // This ensures the chat header always shows the model that will actually
+    // be used for generation, rather than a stale "gpt-4o" fallback.
+    let effectiveProfile = chat.apiProfile
+    if (!effectiveProfile) {
+      if (chat.preset?.apiProfileId) {
+        effectiveProfile = await db.apiProfile.findUnique({
+          where: { id: chat.preset.apiProfileId },
+        })
+      }
+      if (!effectiveProfile) {
+        effectiveProfile =
+          (await db.apiProfile.findFirst({ where: { isDefault: true } })) ||
+          (await db.apiProfile.findFirst())
+      }
+      if (effectiveProfile) {
+        // Persist the resolved profile back onto the chat so future loads
+        // are consistent and the client sees the right model immediately.
+        await db.chat.update({
+          where: { id: chat.id },
+          data: { apiProfileId: effectiveProfile.id },
+        })
+      }
+    }
+
+    // Strip apiKey from the embedded apiProfile
+    if (effectiveProfile) {
+      const { apiKey: _k, ...safe } = effectiveProfile
       void _k
       return NextResponse.json({ ...chat, apiProfile: safe })
     }
-    return NextResponse.json(chat)
+    return NextResponse.json({ ...chat, apiProfile: null })
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

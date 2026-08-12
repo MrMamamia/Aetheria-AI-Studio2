@@ -334,7 +334,11 @@ export const DEFAULT_GEN_PARAMS = {
   repetitionPenalty: 1,
   frequencyPenalty: 0,
   presencePenalty: 0,
-  maxTokens: 512,
+  // Reasoning models (DeepSeek R1, GPT-OSS, Qwen3) spend tokens on
+  // chain-of-thought BEFORE producing visible content. 512 was too low —
+  // the model would exhaust its budget mid-reasoning and return an empty
+  // message. 2048 gives reasoning models room to finish AND write a reply.
+  maxTokens: 2048,
   stop: [],
   seed: undefined,
   stream: true,
@@ -342,7 +346,7 @@ export const DEFAULT_GEN_PARAMS = {
 
 export const DEFAULT_PROMPT_SETTINGS = {
   contextSize: 8192,
-  maxResponseTokens: 512,
+  maxResponseTokens: 2048,
   includePersona: true,
   includeScenario: true,
   includeLore: true,
@@ -354,26 +358,26 @@ export const DEFAULT_PRESETS = [
   {
     name: 'Creative',
     description: 'Higher temperature for expressive, varied responses.',
-    genParams: { temperature: 1.1, topP: 0.95, maxTokens: 768, stream: true },
-    promptSettings: { contextSize: 8192, maxResponseTokens: 768, recentMessages: 24 },
+    genParams: { temperature: 1.1, topP: 0.95, maxTokens: 2048, stream: true },
+    promptSettings: { contextSize: 8192, maxResponseTokens: 2048, recentMessages: 24 },
   },
   {
     name: 'Balanced',
     description: 'A sensible default for general roleplay and conversation.',
-    genParams: { temperature: 0.9, topP: 1, maxTokens: 512, stream: true },
-    promptSettings: { contextSize: 8192, maxResponseTokens: 512, recentMessages: 20 },
+    genParams: { temperature: 0.9, topP: 1, maxTokens: 2048, stream: true },
+    promptSettings: { contextSize: 8192, maxResponseTokens: 2048, recentMessages: 20 },
   },
   {
     name: 'Precise',
     description: 'Lower temperature for coherent, on-task responses.',
-    genParams: { temperature: 0.5, topP: 0.8, maxTokens: 512, stream: true },
-    promptSettings: { contextSize: 8192, maxResponseTokens: 512, recentMessages: 16 },
+    genParams: { temperature: 0.5, topP: 0.8, maxTokens: 2048, stream: true },
+    promptSettings: { contextSize: 8192, maxResponseTokens: 2048, recentMessages: 16 },
   },
   {
     name: 'Long-form',
     description: 'Longer responses for narrative and story-driven roleplay.',
-    genParams: { temperature: 0.95, topP: 0.98, maxTokens: 1280, stream: true },
-    promptSettings: { contextSize: 16384, maxResponseTokens: 1280, recentMessages: 30 },
+    genParams: { temperature: 0.95, topP: 0.98, maxTokens: 4096, stream: true },
+    promptSettings: { contextSize: 16384, maxResponseTokens: 4096, recentMessages: 30 },
   },
 ]
 

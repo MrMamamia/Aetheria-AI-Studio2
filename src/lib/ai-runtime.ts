@@ -14,6 +14,7 @@ export interface GenerateOptions {
 
 export interface StreamCallbacks {
   onToken: (token: string) => void
+  onReasoning?: (token: string) => void
   onDone: (full: string, meta: StreamMeta) => void
   onError: (err: Error) => void
 }
@@ -23,6 +24,7 @@ export interface StreamMeta {
   model?: string
   provider: ProviderType
   latencyMs: number
+  reasoning?: string
 }
 
 /**
@@ -101,6 +103,7 @@ async function streamOpenAICompatible(
   const decoder = new TextDecoder()
   let buffer = ''
   let full = ''
+  let reasoning = ''
 
   while (true) {
     const { done, value } = await reader.read()
@@ -115,9 +118,24 @@ async function streamOpenAICompatible(
       if (data === '[DONE]') continue
       try {
         const json = JSON.parse(data)
+        const choice = json?.choices?.[0]
+        // Reasoning models (Groq DeepSeek-R1, GPT-OSS, Qwen3, etc.) return
+        // chain-of-thought in `delta.reasoning_content`. Capture it separately
+        // so it can be shown in a collapsible "thinking" block — and so the
+        // message isn't empty when the model spends its entire token budget
+        // on reasoning.
+        const reasoningDelta: string =
+          choice?.delta?.reasoning_content ??
+          choice?.delta?.reasoning ??
+          choice?.message?.reasoning_content ??
+          ''
+        if (reasoningDelta) {
+          reasoning += reasoningDelta
+          cb.onReasoning?.(reasoningDelta)
+        }
         const delta: string =
-          json?.choices?.[0]?.delta?.content ??
-          json?.choices?.[0]?.message?.content ??
+          choice?.delta?.content ??
+          choice?.message?.content ??
           ''
         if (delta) {
           full += delta
@@ -129,11 +147,16 @@ async function streamOpenAICompatible(
     }
   }
 
-  cb.onDone(full, {
-    tokens: Math.ceil(full.length / 4),
+  // If the model produced only reasoning and no content (e.g. it hit
+  // max_tokens mid-reasoning), fall back to reasoning so the message isn't
+  // blank. The UI will render it in a thinking block either way.
+  const effectiveContent = full || ''
+  cb.onDone(effectiveContent, {
+    tokens: Math.ceil((effectiveContent || reasoning).length / 4),
     model,
     provider: opts.provider,
     latencyMs: Date.now() - start,
+    reasoning: reasoning || undefined,
   })
 }
 

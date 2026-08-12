@@ -122,7 +122,7 @@ export function ChatView() {
                   PROVIDERS[
                     (chat.apiProfile?.provider ?? 'openai')
                   ]?.defaultModels?.[0]?.id ||
-                  '—'}
+                  'No model configured'}
               </span>
             )}
           </div>
@@ -155,6 +155,7 @@ export function ChatView() {
                 character={character}
                 isStreaming={isStreamingThis}
                 streamingContent={isStreamingThis ? streamingContent : undefined}
+                streamingReasoning={isStreamingThis ? streamingReasoning : undefined}
                 onRegenerate={() => handleRegenerate(m)}
                 onContinue={handleContinue}
                 onBranch={() => handleBranch(m)}
@@ -170,8 +171,16 @@ export function ChatView() {
               <Avatar name={character?.name || 'AI'} src={character?.avatar} size="md" />
               <div className="flex flex-col">
                 <span className="mb-1 text-xs font-medium">{character?.name}</span>
+                {streamingReasoning && (
+                  <div className="mb-1 max-w-md rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="mb-0.5 font-medium opacity-70">Thinking…</div>
+                    <div className="whitespace-pre-wrap break-words opacity-80">{streamingReasoning.slice(-400)}</div>
+                  </div>
+                )}
                 <div className="rounded-2xl rounded-tl-sm border bg-card px-3.5 py-2.5 text-sm">
-                  <span className="stream-caret text-muted-foreground">Thinking</span>
+                  <span className="stream-caret text-muted-foreground">
+                    {streamingReasoning ? 'Composing response…' : 'Thinking'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -182,8 +191,20 @@ export function ChatView() {
               <Avatar name={character?.name || 'AI'} src={character?.avatar} size="md" />
               <div className="flex flex-col">
                 <span className="mb-1 text-xs font-medium">{character?.name}</span>
+                {streamingReasoning && (
+                  <div className="mb-1 max-w-md rounded-lg border border-dashed bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                    <div className="mb-0.5 font-medium opacity-70">Thinking…</div>
+                    <div className="whitespace-pre-wrap break-words opacity-80">{streamingReasoning.slice(-400)}</div>
+                  </div>
+                )}
                 <div className="stream-caret rounded-2xl rounded-tl-sm border bg-card px-3.5 py-2.5 text-sm">
-                  <MarkdownLite content={streamingContent} />
+                  {streamingContent ? (
+                    <MarkdownLite content={streamingContent} />
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {streamingReasoning ? 'Composing response…' : 'Thinking'}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
