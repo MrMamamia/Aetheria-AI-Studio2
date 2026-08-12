@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { Plus, MessageSquare, ChevronDown, Search, MoreVertical, Pencil, Copy, Trash2, Pin } from 'lucide-react'
+import { Plus, MessageSquare, ChevronDown, Search, MoreVertical, Pencil, Copy, Trash2, Pin, Download, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
@@ -86,6 +86,55 @@ export function ChatSwitcher({ characterId, activeChatId }: ChatSwitcherProps) {
     }
   }
 
+  const exportChat = async (id: string) => {
+    try {
+      const chat = await api<any>(`/api/chats/${id}`)
+      const data = JSON.stringify(chat, null, 2)
+      const blob = new Blob([data], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${chat.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_${id.slice(0, 8)}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      toast.success('Chat exported')
+    } catch (e) {
+      toast.error((e as Error).message)
+    }
+  }
+
+  const importChat = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.json,application/json'
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      try {
+        const text = await file.text()
+        const chat = JSON.parse(text)
+        const created = await api('/api/chats', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: chat.title || 'Imported Chat',
+            characterId,
+            personaId: chat.personaId,
+            presetId: chat.presetId,
+            apiProfileId: chat.apiProfileId,
+          }),
+        })
+        setActiveChat(created.id)
+        setTick((t) => t + 1)
+        toast.success('Chat imported')
+      } catch (e) {
+        toast.error(`Import failed: ${(e as Error).message}`)
+      }
+    }
+    input.click()
+  }
+
   const togglePin = async (id: string, pinned: boolean) => {
     try {
       await api(`/api/chats/${id}`, { method: 'PUT', body: JSON.stringify({ pinned: !pinned }) })
@@ -133,7 +182,7 @@ export function ChatSwitcher({ characterId, activeChatId }: ChatSwitcherProps) {
               </div>
             </div>
             <DropdownMenuSeparator />
-            <ScrollArea className="max-h-72">
+            <ScrollArea className="max-h-72 scrollbar-thin">
               <div className="flex flex-col">
                 {filtered.length === 0 && (
                   <div className="px-3 py-4 text-center text-sm text-muted-foreground">No chats found</div>
@@ -174,6 +223,12 @@ export function ChatSwitcher({ characterId, activeChatId }: ChatSwitcherProps) {
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => duplicate(c.id)}>
                         <Copy className="h-3 w-3" />
                       </Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => exportChat(c.id)}>
+                        <Download className="h-3 w-3" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={importChat}>
+                        <Upload className="h-3 w-3" />
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => setDeleteId(c.id)}>
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -185,6 +240,9 @@ export function ChatSwitcher({ characterId, activeChatId }: ChatSwitcherProps) {
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={newChat}>
               <Plus className="mr-2 h-4 w-4" /> New chat
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={importChat}>
+              <Upload className="mr-2 h-4 w-4" /> Import chat
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -15,6 +15,7 @@ import {
   Users, MessageSquare, ArrowLeft, Square, Radio,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { PROVIDERS } from '@/lib/providers'
 
 export function ChatView() {
   const activeChatId = useAppStore((s) => s.activeChatId)
@@ -116,7 +117,13 @@ export function ChatView() {
                 <Radio className="h-3 w-3 animate-pulse" /> Generating…
               </span>
             ) : (
-              <span>{character?.modelName || chat.apiProfile?.modelName || 'GLM-4.6'}</span>
+              <span>
+                {chat.apiProfile?.modelName ||
+                  PROVIDERS[
+                    (chat.apiProfile?.provider ?? 'openai')
+                  ]?.defaultModels?.[0]?.id ||
+                  '—'}
+              </span>
             )}
           </div>
         </div>

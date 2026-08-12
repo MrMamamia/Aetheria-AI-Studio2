@@ -7,6 +7,7 @@ import {
   DEFAULT_GEN_PARAMS,
   DEFAULT_PROMPT_SETTINGS,
   estimateTokens,
+  PROVIDERS,
 } from '@/lib/providers'
 import type { GenParams, PromptSettings, ProviderType } from '@/lib/types'
 
@@ -67,9 +68,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const provider = (apiProfile.provider || 'zai') as ProviderType
+    const provider = (apiProfile.provider || 'openai') as ProviderType
+    // The API profile is the authoritative source for the model. Presets that
+    // happen to carry a hardcoded model (e.g. the seeded "gpt-4o") must not
+    // silently override it. Fall back to the provider's default model.
+    const providerMeta = PROVIDERS[provider] || PROVIDERS.openai
     const model =
-      chat.preset?.modelName || apiProfile.modelName || 'glm-4.6'
+      apiProfile.modelName ||
+      providerMeta.defaultModels[0]?.id ||
+      chat.preset?.modelName ||
+      'gpt-4o'
 
     const genParams: GenParams = {
       ...DEFAULT_GEN_PARAMS,

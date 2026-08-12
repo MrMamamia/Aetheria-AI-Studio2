@@ -252,7 +252,7 @@ function GenerationTab({ chat, personas, presets, apiProfiles, onUpdate }: {
   // Resolve effective preset + api profile
   const preset = chat.preset || presets.find((p) => p.isDefault) || presets[0]
   const apiProfile = chat.apiProfile || apiProfiles.find((p) => p.isDefault) || apiProfiles[0]
-  const providerType = preset?.providerType || apiProfile?.provider || 'zai'
+  const providerType = preset?.providerType || apiProfile?.provider || 'openai'
   const caps = PROVIDERS[providerType as keyof typeof PROVIDERS]?.capabilities
   const genParams: GenParams = preset?.genParams ? (typeof preset.genParams === 'string' ? JSON.parse(preset.genParams) : preset.genParams) : DEFAULT_GEN_PARAMS
 
@@ -277,7 +277,7 @@ function GenerationTab({ chat, personas, presets, apiProfiles, onUpdate }: {
             {presets.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}{p.isDefault && ' (default)'}</SelectItem>)}
           </SelectContent>
         </Select>
-        <p className="text-[11px] text-muted-foreground">Model: {preset?.modelName || apiProfile?.modelName || 'GLM-4.6'}</p>
+        <p className="text-[11px] text-muted-foreground">Model: {apiProfile?.modelName || PROVIDERS[providerType as keyof typeof PROVIDERS]?.defaultModels?.[0]?.id || preset?.modelName || '—'}</p>
       </div>
 
       <div className="space-y-2">

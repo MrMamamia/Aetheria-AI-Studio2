@@ -1,4 +1,4 @@
-# Halcyon — Self-Hosting Guide
+# Aetheria — Self-Hosting Guide
 
 A desktop-first, local-first AI character chat platform. Runs entirely on your machine. No account, no cloud sync, no telemetry.
 
@@ -66,10 +66,13 @@ bun run start          # respects PORT env var too
 
 1. Open `http://localhost:<port>` in your browser.
 2. You'll land on the **Character Library** — there's a built-in example character.
-3. Click it → start chatting. The built-in **Z.AI Cloud** provider works out of the box (no API key needed).
-4. **Want to use your own AI provider?** Press `⌘5` (or `Ctrl+5`) → API Manager → Add Profile. Supports OpenAI, Anthropic, Google, and any OpenAI-compatible endpoint (Ollama, LM Studio, vLLM, etc.).
-   - For **Ollama** (fully offline): provider = `openai-compatible`, base URL = `http://localhost:11434/v1`, API key = anything.
-   - For **LM Studio**: base URL = `http://localhost:1234/v1`.
+3. Click it → start chatting.
+4. **Configure your AI provider:** Press `⌘6` (or `Ctrl+6`) → API Profiles.
+   - **OpenAI (Default):** Enter your API key (`sk-...`). Saved securely & hidden.
+   - **Anthropic, Google Gemini, Groq, OpenRouter, DeepSeek, Mistral, Together AI, Perplexity:** Dedicated provider options out-of-the-box.
+   - **Local / OpenAI-Compatible (Ollama, LM Studio, vLLM):**
+     - Ollama: provider = `OpenAI-Compatible`, base URL = `http://localhost:11434/v1`.
+     - LM Studio: base URL = `http://localhost:1234/v1`.
 
 ## Keyboard shortcuts
 
@@ -89,14 +92,5 @@ Full reference inside the app: Settings → Shortcuts (`⌘7` then "Shortcuts" t
 - Tailwind CSS 4 + shadcn/ui (New York)
 - Prisma ORM + SQLite
 - Zustand (client state) + TanStack Query (server state)
-- z-ai-web-dev-sdk (built-in AI provider)
-
-## Troubleshooting
-
-**Port already in use?** Pick another: `PORT=3001 bun run dev`.
-
-**Database needs a reset?** `bun run db:reset` (⚠️ deletes all data) then `bun run db:push`.
-
-**Want a fresh start?** Delete `db/custom.db` and run `bun run db:push` again.
 
 Enjoy. 🌙

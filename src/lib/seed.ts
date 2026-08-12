@@ -3,19 +3,17 @@ import { db } from './db'
 import { DEFAULT_PRESETS } from './providers'
 
 export async function ensureSeed() {
-  // Default API profile (Z.AI Cloud, built-in)
+  // Default API profile (OpenAI)
   const profileCount = await db.apiProfile.count()
   let defaultProfileId: string
   if (profileCount === 0) {
     const p = await db.apiProfile.create({
       data: {
-        name: 'Z.AI Cloud',
-        provider: 'zai',
-        modelName: 'glm-4.6',
+        name: 'OpenAI Primary',
+        provider: 'openai',
+        modelName: 'gpt-4o',
         isDefault: true,
-        capabilities: JSON.stringify({
-          temperature: true, topP: true, stream: true, systemPrompt: true,
-        }),
+        capabilities: JSON.stringify(DEFAULT_PRESETS[0] ? PROVIDERS.openai.capabilities : {}),
       },
     })
     defaultProfileId = p.id
@@ -32,8 +30,8 @@ export async function ensureSeed() {
         data: {
           name: preset.name,
           description: preset.description,
-          providerType: 'zai',
-          modelName: 'glm-4.6',
+          providerType: 'openai',
+          modelName: 'gpt-4o',
           apiProfileId: defaultProfileId,
           genParams: JSON.stringify(preset.genParams),
           promptSettings: JSON.stringify(preset.promptSettings),
@@ -65,7 +63,7 @@ export async function ensureSeed() {
         name: 'Aria Vance',
         description:
           'Aria is the solitary keeper of the Emberlight Lighthouse, perched on the wind-scoured cliffs of the northern coast. She is in her early thirties, sharp-eyed and quietly fierce, with salt-bleached hair and calloused hands. She has kept the light burning through a decade of storms and shipwrecks.',
-        creator: 'Halcyon',
+        creator: 'Aetheria',
         version: '1.0',
         tags: JSON.stringify(['original', 'roleplay', 'cozy', 'atmospheric']),
         favorite: true,
@@ -111,7 +109,7 @@ export async function ensureSeed() {
         roleplayInstructions:
           'Maintain Aria\'s terse, vivid voice. Do not make her overly cheerful or effusive. She is warm, not sunny.',
         customFields: JSON.stringify([]),
-        notes: 'Built-in example character demonstrating Halcyon\'s character architecture. Edit or delete freely.',
+        notes: 'Built-in example character demonstrating Aetheria\'s character architecture. Edit or delete freely.',
       },
     })
   }

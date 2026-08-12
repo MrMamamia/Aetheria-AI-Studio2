@@ -24,8 +24,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}))
-    const provider = (body.provider || 'zai') as ProviderType
-    const capSource = PROVIDERS[provider as ProviderTypeT] || PROVIDERS.zai
+    const provider = (body.provider || 'openai') as ProviderType
+    const capSource = PROVIDERS[provider as ProviderTypeT] || PROVIDERS.openai
     const capabilities =
       body.capabilities !== undefined
         ? typeof body.capabilities === 'string'

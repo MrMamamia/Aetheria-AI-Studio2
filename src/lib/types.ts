@@ -1,6 +1,17 @@
 // Shared application types
 
-export type ProviderType = 'zai' | 'openai' | 'anthropic' | 'openai-compatible'
+export type ProviderType =
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'groq'
+  | 'openrouter'
+  | 'deepseek'
+  | 'mistral'
+  | 'together'
+  | 'perplexity'
+  | 'openai-compatible'
+  | 'zai'
 
 export interface GenParams {
   temperature?: number

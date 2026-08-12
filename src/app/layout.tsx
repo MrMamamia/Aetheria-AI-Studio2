@@ -15,11 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Halcyon — AI Character Studio",
+  title: "Aetheria — AI Character Studio",
   description:
-    "A desktop-first, local-first AI character chat platform. SillyTavern's depth, reimagined as a modern desktop application.",
-  keywords: ["AI characters", "roleplay", "SillyTavern", "character chat", "local-first"],
-  authors: [{ name: "Halcyon" }],
+    "A desktop-first, local-first AI character chat platform. Reimagined as a modern desktop application with full multi-provider LLM support.",
+  keywords: ["AI characters", "roleplay", "character chat", "local-first", "OpenAI", "Anthropic", "Google Gemini", "Groq", "OpenRouter"],
+  authors: [{ name: "Aetheria" }],
 };
 
 export default function RootLayout({

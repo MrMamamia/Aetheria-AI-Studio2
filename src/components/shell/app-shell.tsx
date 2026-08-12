@@ -23,7 +23,7 @@ export function AppShell() {
   // Seed on first load
   useEffect(() => {
     fetch('/api/seed', { method: 'POST' }).then(() => {
-      window.dispatchEvent(new CustomEvent('halcyon:seeded'))
+      window.dispatchEvent(new CustomEvent('aetheria:seeded'))
     }).catch(() => {})
   }, [])
 
@@ -32,7 +32,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-      <ResizablePanelGroup direction="horizontal" className="flex-1" autoSaveId="halcyon-layout">
+      <ResizablePanelGroup direction="horizontal" className="flex-1" autoSaveId="aetheria-layout">
         {!focusMode && (
           <>
             <ResizablePanel

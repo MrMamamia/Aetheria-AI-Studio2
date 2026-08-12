@@ -4,14 +4,32 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { useFetch, api } from '@/hooks/use-fetch'
 import { Avatar } from '@/components/shared/avatar'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui/select'
+import {
+  Separator,
+} from '@/components/ui/separator'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -20,10 +38,6 @@ import {
   Pencil, Trash2, Tag, Users, Sparkles,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 
 function parseTags(s: any): string[] {
   if (!s) return []
@@ -49,8 +63,8 @@ export function CharacterLibrary() {
 
   useEffect(() => {
     const handler = () => reload()
-    window.addEventListener('halcyon:seeded', handler)
-    return () => window.removeEventListener('halcyon:seeded', handler)
+    window.addEventListener('aetheria:seeded', handler)
+    return () => window.removeEventListener('aetheria:seeded', handler)
   }, [reload])
 
   const allTags = useMemo(() => {
@@ -203,7 +217,7 @@ export function CharacterLibrary() {
       </div>
 
       {/* Grid */}
-      <ScrollArea className="flex-1">
+      <div className="flex-1 overflow-y-auto">
         <div className="p-4">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
@@ -328,7 +342,7 @@ export function CharacterLibrary() {
             </div>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>

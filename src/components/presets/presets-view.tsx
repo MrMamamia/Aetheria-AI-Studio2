@@ -132,7 +132,7 @@ function hydrateFormState(p: PresetListItem): FormState {
     name: p.name,
     description: p.description ?? '',
     isDefault: p.isDefault,
-    providerType: (p.providerType as ProviderType) || 'zai',
+    providerType: (p.providerType as ProviderType) || 'openai',
     modelName: p.modelName ?? '',
     apiProfileId: p.apiProfileId ?? null,
     genParams: parseGenParams(p.genParams),
@@ -214,8 +214,8 @@ export function PresetsView() {
   // Listen for seed completion (so the list refreshes after initial seed).
   useEffect(() => {
     const handler = () => reloadPresets()
-    window.addEventListener('halcyon:seeded', handler)
-    return () => window.removeEventListener('halcyon:seeded', handler)
+    window.addEventListener('aetheria:seeded', handler)
+    return () => window.removeEventListener('aetheria:seeded', handler)
   }, [reloadPresets])
 
   // ---- Actions ----
@@ -226,7 +226,7 @@ export function PresetsView() {
         method: 'POST',
         body: JSON.stringify({
           name: 'New Preset',
-          providerType: 'zai',
+          providerType: 'openai',
           genParams: { ...DEFAULT_GEN_PARAMS },
           promptSettings: { ...DEFAULT_PROMPT_SETTINGS },
         }),
@@ -249,7 +249,7 @@ export function PresetsView() {
           body: JSON.stringify({
             name: `${p.name} (Copy)`,
             description: p.description,
-            providerType: p.providerType ?? 'zai',
+            providerType: p.providerType ?? 'openai',
             modelName: p.modelName,
             apiProfileId: p.apiProfileId,
             genParams: gp,
@@ -550,7 +550,7 @@ function PresetEditor({
   const capabilities: ProviderCapabilities = useMemo(() => {
     return (
       PROVIDERS[formState.providerType]?.capabilities ??
-      PROVIDERS.zai.capabilities
+      PROVIDERS.openai.capabilities
     )
   }, [formState.providerType])
 

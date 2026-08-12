@@ -1,47 +1,24 @@
 import type { ProviderCapabilities, ProviderType } from './types'
 
-// Provider metadata + capability matrix.
-// The Z.AI Cloud provider works out-of-the-box via z-ai-web-dev-sdk.
-export const PROVIDERS: Record<
-  ProviderType,
-  {
-    label: string
-    description: string
-    capabilities: ProviderCapabilities
-    needsBaseUrl: boolean
-    needsApiKey: boolean
-    defaultModels: { id: string; name: string; contextWindow: number }[]
-    builtin: boolean
-  }
-> = {
-  zai: {
-    label: 'Z.AI Cloud',
-    description: 'Built-in provider. Works out of the box — no configuration required.',
-    capabilities: {
-      temperature: true,
-      topP: true,
-      topK: false,
-      minP: false,
-      repetitionPenalty: false,
-      frequencyPenalty: false,
-      presencePenalty: false,
-      maxTokens: false,
-      stop: false,
-      seed: false,
-      stream: true,
-      systemPrompt: true,
-    },
-    needsBaseUrl: false,
-    needsApiKey: false,
-    defaultModels: [
-      { id: 'glm-4.6', name: 'GLM-4.6', contextWindow: 131072 },
-      { id: 'glm-4.5', name: 'GLM-4.5', contextWindow: 131072 },
-    ],
-    builtin: true,
-  },
+export interface ProviderMeta {
+  label: string
+  description: string
+  baseUrl?: string
+  capabilities: ProviderCapabilities
+  needsBaseUrl: boolean
+  needsApiKey: boolean
+  apiKeyUrl?: string
+  defaultModels: { id: string; name: string; contextWindow: number }[]
+  builtin: boolean
+}
+
+// Provider metadata + capability matrix. OpenAI is default.
+export const PROVIDERS: Record<ProviderType, ProviderMeta> = {
   openai: {
     label: 'OpenAI',
     description: 'Official OpenAI API. Requires an API key from platform.openai.com.',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
     capabilities: {
       temperature: true,
       topP: true,
@@ -62,12 +39,16 @@ export const PROVIDERS: Record<
       { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000 },
       { id: 'gpt-4o-mini', name: 'GPT-4o mini', contextWindow: 128000 },
       { id: 'gpt-4.1', name: 'GPT-4.1', contextWindow: 1047576 },
+      { id: 'o1', name: 'o1', contextWindow: 200000 },
+      { id: 'o3-mini', name: 'o3-mini', contextWindow: 200000 },
     ],
     builtin: false,
   },
   anthropic: {
-    label: 'Anthropic',
+    label: 'Anthropic (Claude)',
     description: 'Official Anthropic Claude API. Requires an API key from console.anthropic.com.',
+    baseUrl: 'https://api.anthropic.com/v1',
+    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
     capabilities: {
       temperature: true,
       topP: true,
@@ -91,9 +72,211 @@ export const PROVIDERS: Record<
     ],
     builtin: false,
   },
+  google: {
+    label: 'Google Gemini',
+    description: 'Google Gemini OpenAI-compatible API. Requires an API key from Google AI Studio.',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    apiKeyUrl: 'https://aistudio.google.com/app/apikey',
+    capabilities: {
+      temperature: true,
+      topP: true,
+      topK: true,
+      minP: false,
+      repetitionPenalty: false,
+      frequencyPenalty: false,
+      presencePenalty: false,
+      maxTokens: true,
+      stop: true,
+      seed: false,
+      stream: true,
+      systemPrompt: true,
+    },
+    needsBaseUrl: false,
+    needsApiKey: true,
+    defaultModels: [
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', contextWindow: 1048576 },
+      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', contextWindow: 2097152 },
+      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', contextWindow: 2097152 },
+    ],
+    builtin: false,
+  },
+  groq: {
+    label: 'Groq',
+    description: 'Ultra-fast Llama, DeepSeek & more via LPU inference. Requires an API key from console.groq.com.',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    apiKeyUrl: 'https://console.groq.com/keys',
+    capabilities: {
+      temperature: true,
+      topP: true,
+      topK: false,
+      minP: false,
+      repetitionPenalty: false,
+      frequencyPenalty: true,
+      presencePenalty: true,
+      maxTokens: true,
+      stop: true,
+      seed: true,
+      stream: true,
+      systemPrompt: true,
+    },
+    needsBaseUrl: false,
+    needsApiKey: true,
+    defaultModels: [
+      { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', contextWindow: 128000 },
+      { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', contextWindow: 128000 },
+      { id: 'openai/gpt-oss-120b', name: 'GPT-OSS 120B', contextWindow: 128000 },
+      { id: 'openai/gpt-oss-20b', name: 'GPT-OSS 20B', contextWindow: 128000 },
+      { id: 'openai/gpt-oss-safeguard-20b', name: 'GPT-OSS Safety 20B', contextWindow: 128000 },
+      { id: 'qwen/qwen3.6-27b', name: 'Qwen 3.6 27B', contextWindow: 128000 },
+      { id: 'minimaxai/minimax-m2.7', name: 'MiniMax M2.7', contextWindow: 128000 },
+      { id: 'deepseek-r1-distill-llama-70b', name: 'DeepSeek R1 70B', contextWindow: 128000 },
+      { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', contextWindow: 32768 },
+    ],
+    builtin: false,
+  },
+  openrouter: {
+    label: 'OpenRouter',
+    description: 'Unified router for 200+ AI models (Claude, DeepSeek, Llama, GPT-4). Key from openrouter.ai.',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    apiKeyUrl: 'https://openrouter.ai/keys',
+    capabilities: {
+      temperature: true,
+      topP: true,
+      topK: true,
+      minP: true,
+      repetitionPenalty: true,
+      frequencyPenalty: true,
+      presencePenalty: true,
+      maxTokens: true,
+      stop: true,
+      seed: true,
+      stream: true,
+      systemPrompt: true,
+    },
+    needsBaseUrl: false,
+    needsApiKey: true,
+    defaultModels: [
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', contextWindow: 200000 },
+      { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', contextWindow: 163840 },
+      { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B', contextWindow: 131072 },
+      { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini', contextWindow: 128000 },
+    ],
+    builtin: false,
+  },
+  deepseek: {
+    label: 'DeepSeek',
+    description: 'Official DeepSeek AI API. Requires an API key from platform.deepseek.com.',
+    baseUrl: 'https://api.deepseek.com/v1',
+    apiKeyUrl: 'https://platform.deepseek.com/api_keys',
+    capabilities: {
+      temperature: true,
+      topP: true,
+      topK: false,
+      minP: false,
+      repetitionPenalty: false,
+      frequencyPenalty: true,
+      presencePenalty: true,
+      maxTokens: true,
+      stop: true,
+      seed: false,
+      stream: true,
+      systemPrompt: true,
+    },
+    needsBaseUrl: false,
+    needsApiKey: true,
+    defaultModels: [
+      { id: 'deepseek-chat', name: 'DeepSeek V3 (Chat)', contextWindow: 64000 },
+      { id: 'deepseek-reasoner', name: 'DeepSeek R1 (Reasoner)', contextWindow: 64000 },
+    ],
+    builtin: false,
+  },
+  mistral: {
+    label: 'Mistral AI',
+    description: 'Official Mistral AI API. Requires an API key from console.mistral.ai.',
+    baseUrl: 'https://api.mistral.ai/v1',
+    apiKeyUrl: 'https://console.mistral.ai/api-keys/',
+    capabilities: {
+      temperature: true,
+      topP: true,
+      topK: false,
+      minP: false,
+      repetitionPenalty: false,
+      frequencyPenalty: false,
+      presencePenalty: false,
+      maxTokens: true,
+      stop: true,
+      seed: true,
+      stream: true,
+      systemPrompt: true,
+    },
+    needsBaseUrl: false,
+    needsApiKey: true,
+    defaultModels: [
+      { id: 'mistral-large-latest', name: 'Mistral Large', contextWindow: 128000 },
+      { id: 'pixtral-large-latest', name: 'Pixtral Large', contextWindow: 128000 },
+      { id: 'mistral-small-latest', name: 'Mistral Small', contextWindow: 32768 },
+    ],
+    builtin: false,
+  },
+  together: {
+    label: 'Together AI',
+    description: 'Fast cloud hosting for open-weights models (Llama, Qwen, DeepSeek). Key from together.ai.',
+    baseUrl: 'https://api.together.xyz/v1',
+    apiKeyUrl: 'https://api.together.ai/settings/api-keys',
+    capabilities: {
+      temperature: true,
+      topP: true,
+      topK: true,
+      minP: false,
+      repetitionPenalty: true,
+      frequencyPenalty: true,
+      presencePenalty: true,
+      maxTokens: true,
+      stop: true,
+      seed: true,
+      stream: true,
+      systemPrompt: true,
+    },
+    needsBaseUrl: false,
+    needsApiKey: true,
+    defaultModels: [
+      { id: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', name: 'Llama 3.3 70B Turbo', contextWindow: 131072 },
+      { id: 'Qwen/Qwen2.5-72B-Instruct-Turbo', name: 'Qwen 2.5 72B Turbo', contextWindow: 32768 },
+      { id: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek R1', contextWindow: 163840 },
+    ],
+    builtin: false,
+  },
+  perplexity: {
+    label: 'Perplexity AI',
+    description: 'Search & reasoning LLMs via official Perplexity API. Key from perplexity.ai.',
+    baseUrl: 'https://api.perplexity.ai',
+    apiKeyUrl: 'https://www.perplexity.ai/settings/api',
+    capabilities: {
+      temperature: true,
+      topP: true,
+      topK: false,
+      minP: false,
+      repetitionPenalty: true,
+      frequencyPenalty: true,
+      presencePenalty: true,
+      maxTokens: true,
+      stop: true,
+      seed: false,
+      stream: true,
+      systemPrompt: true,
+    },
+    needsBaseUrl: false,
+    needsApiKey: true,
+    defaultModels: [
+      { id: 'sonar-pro', name: 'Sonar Pro (Search)', contextWindow: 200000 },
+      { id: 'sonar', name: 'Sonar', contextWindow: 128000 },
+      { id: 'sonar-reasoning-pro', name: 'Sonar Reasoning Pro', contextWindow: 128000 },
+    ],
+    builtin: false,
+  },
   'openai-compatible': {
-    label: 'OpenAI-Compatible',
-    description: 'Any endpoint exposing an OpenAI-compatible /v1/chat/completions API (LM Studio, Ollama, vLLM, etc.).',
+    label: 'OpenAI-Compatible / Custom',
+    description: 'Connect any OpenAI-compatible server (LM Studio, Ollama, vLLM, LocalAI, Jan, text-generation-webui).',
     capabilities: {
       temperature: true,
       topP: true,
@@ -112,6 +295,32 @@ export const PROVIDERS: Record<
     needsApiKey: false,
     defaultModels: [
       { id: 'local-model', name: 'Local Model', contextWindow: 8192 },
+      { id: 'llama3.2', name: 'Llama 3.2 (Ollama)', contextWindow: 131072 },
+      { id: 'mistral-7b-instruct', name: 'Mistral 7B', contextWindow: 32768 },
+    ],
+    builtin: false,
+  },
+  zai: {
+    label: 'Legacy Cloud Provider',
+    description: 'Legacy provider support.',
+    capabilities: {
+      temperature: true,
+      topP: true,
+      topK: false,
+      minP: false,
+      repetitionPenalty: false,
+      frequencyPenalty: false,
+      presencePenalty: false,
+      maxTokens: false,
+      stop: false,
+      seed: false,
+      stream: true,
+      systemPrompt: true,
+    },
+    needsBaseUrl: false,
+    needsApiKey: false,
+    defaultModels: [
+      { id: 'glm-4.6', name: 'GLM-4.6', contextWindow: 131072 },
     ],
     builtin: false,
   },

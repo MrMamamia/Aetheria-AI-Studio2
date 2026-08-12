@@ -1,10 +1,6 @@
 import 'server-only'
-import ZAI from 'z-ai-web-dev-sdk'
-import type {
-  ChatMessageInput,
-  GenParams,
-  ProviderType,
-} from './types'
+import { PROVIDERS } from './providers'
+import type { ChatMessageInput, GenParams, ProviderType } from './types'
 
 export interface GenerateOptions {
   provider: ProviderType
@@ -30,9 +26,9 @@ export interface StreamMeta {
 }
 
 /**
- * Generate a completion (streaming). The Z.AI Cloud provider uses
- * z-ai-web-dev-sdk; other providers issue OpenAI-compatible HTTP requests
- * against a user-supplied base URL / API key.
+ * Generate a completion (streaming). Uses OpenAI-compatible HTTP endpoints
+ * supported by OpenAI, Anthropic, Google Gemini, Groq, OpenRouter, DeepSeek,
+ * Mistral, Together AI, Perplexity, and local OpenAI-compatible servers.
  */
 export async function streamGenerate(
   opts: GenerateOptions,
@@ -40,135 +36,45 @@ export async function streamGenerate(
 ): Promise<void> {
   const start = Date.now()
   try {
-    if (opts.provider === 'zai') {
-      await streamZai(opts, cb, start)
-    } else {
-      await streamOpenAICompatible(opts, cb, start)
-    }
+    await streamOpenAICompatible(opts, cb, start)
   } catch (err) {
     cb.onError(err as Error)
   }
 }
 
-async function streamZai(
-  opts: GenerateOptions,
-  cb: StreamCallbacks,
-  start: number,
-) {
-  const zai = await ZAI.create()
-  const model = opts.model || 'glm-4.6'
-
-  // The Z.AI GLM endpoint rejects the 'system' role when followed by an
-  // 'assistant' message (e.g. [system, assistant(greeting), user] → 400
-  // "messages 参数非法"). The SDK's documented usage places the system
-  // directive in an 'assistant' message. We remap 'system'→'assistant' and
-  // merge consecutive same-role messages, inserting a clear delimiter when
-  // the system context is merged with a greeting so the model understands the
-  // greeting is its opening line (not a turn to repeat) and responds to the
-  // latest user message instead.
-  const remapped = opts.messages.map((m) => ({
-    role: m.role === 'system' ? 'assistant' : (m.role as 'user' | 'assistant'),
-    content: m.content,
-  }))
-  const merged: { role: 'user' | 'assistant'; content: string }[] = []
-  for (const m of remapped) {
-    const last = merged[merged.length - 1]
-    if (last && last.role === m.role) {
-      // Delimit system-context + greeting so the model treats the greeting as
-      // its opening line, not a turn to continue/repeat.
-      const sep = last.role === 'assistant' && !last.content.includes('--- (Scene opening) ---')
-        ? '\n\n--- (Scene opening — your first message) ---\n'
-        : '\n\n'
-      last.content += sep + m.content
-    } else {
-      merged.push({ ...m })
-    }
-  }
-  // Drop any empty messages that could invalidate the request.
-  const cleaned = merged.filter((m) => m.content && m.content.trim().length > 0)
-
-  // The SDK returns a raw ReadableStream (SSE bytes) when stream:true.
-  const streamBody: any = await (zai.chat.completions as any).create({
-    model,
-    messages: cleaned,
-    stream: true,
-    temperature: opts.params.temperature,
-    top_p: opts.params.topP,
-    thinking: { type: 'disabled' },
-  })
-
-  let full = ''
-  if (streamBody && typeof streamBody.getReader === 'function') {
-    const reader = streamBody.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      if (opts.signal?.aborted) break
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed.startsWith('data:')) continue
-        const data = trimmed.slice(5).trim()
-        if (!data || data === '[DONE]') continue
-        try {
-          const json = JSON.parse(data)
-          const delta: string =
-            json?.choices?.[0]?.delta?.content ??
-            json?.choices?.[0]?.message?.content ??
-            ''
-          if (delta) {
-            full += delta
-            cb.onToken(delta)
-          }
-        } catch {
-          // partial json — ignore
-        }
-      }
-    }
-  }
-  cb.onDone(full, {
-    tokens: Math.ceil(full.length / 4),
-    model,
-    provider: 'zai',
-    latencyMs: Date.now() - start,
-  })
-}
-
-/**
- * OpenAI-compatible streaming (also used for real OpenAI/Anthropic via
- * their OpenAI-compatible endpoints where available; for Anthropic we fall
- * back to the Messages API shape). For simplicity and to avoid pulling in
- * provider SDKs, we use fetch with SSE parsing.
- */
 async function streamOpenAICompatible(
   opts: GenerateOptions,
   cb: StreamCallbacks,
   start: number,
 ) {
-  const base =
-    opts.provider === 'openai'
-      ? 'https://api.openai.com/v1'
-      : opts.provider === 'anthropic'
-        ? 'https://api.anthropic.com/v1'
-        : (opts.baseUrl || 'http://localhost:1234/v1').replace(/\/$/, '')
+  const providerMeta = PROVIDERS[opts.provider]
+  const base = (
+    opts.baseUrl ||
+    providerMeta?.baseUrl ||
+    'https://api.openai.com/v1'
+  ).replace(/\/$/, '')
 
-  const model = opts.model || 'gpt-4o-mini'
+  const defaultModel = providerMeta?.defaultModels?.[0]?.id || 'gpt-4o'
+  const model = opts.model || defaultModel
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+
+  if (opts.apiKey) {
+    headers.Authorization = `Bearer ${opts.apiKey}`
+  }
+
+  if (opts.provider === 'anthropic') {
+    headers['anthropic-version'] = '2023-06-01'
+  } else if (opts.provider === 'openrouter') {
+    headers['HTTP-Referer'] = 'https://aetheria-studio.app'
+    headers['X-Title'] = 'Aetheria Studio'
+  }
 
   const res = await fetch(`${base}/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(opts.apiKey
-        ? { Authorization: `Bearer ${opts.apiKey}` }
-        : {}),
-      ...(opts.provider === 'anthropic'
-        ? { 'anthropic-version': '2023-06-01' }
-        : {}),
-    },
+    headers,
     body: JSON.stringify({
       model,
       messages: opts.messages,
@@ -231,6 +137,45 @@ async function streamOpenAICompatible(
   })
 }
 
+/**
+ * Fetch the available model IDs from an OpenAI-compatible `/models` endpoint.
+ * Returns an empty array when the provider doesn't expose one.
+ */
+export async function listModels(opts: {
+  provider: ProviderType
+  baseUrl?: string
+  apiKey?: string
+}): Promise<string[]> {
+  try {
+    const providerMeta = PROVIDERS[opts.provider]
+    const base = (
+      opts.baseUrl ||
+      providerMeta?.baseUrl ||
+      'https://api.openai.com/v1'
+    ).replace(/\/$/, '')
+
+    const headers: Record<string, string> = {}
+    if (opts.apiKey) {
+      headers.Authorization = `Bearer ${opts.apiKey}`
+    }
+    if (opts.provider === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://aetheria-studio.app'
+      headers['X-Title'] = 'Aetheria Studio'
+    }
+
+    const res = await fetch(`${base}/models`, { headers })
+    if (!res.ok) return []
+    const json = await res.json().catch(() => null)
+    const data = json?.data
+    if (!Array.isArray(data)) return []
+    return data
+      .map((m: { id?: string }) => m?.id)
+      .filter((id: string | undefined): id is string => Boolean(id))
+  } catch {
+    return []
+  }
+}
+
 /** Non-streaming connection test for the API Manager. */
 export async function testConnection(opts: {
   provider: ProviderType
@@ -239,28 +184,43 @@ export async function testConnection(opts: {
   model?: string
 }): Promise<{ ok: boolean; message: string; model?: string }> {
   try {
-    if (opts.provider === 'zai') {
-      const zai = await ZAI.create()
-      const completion = await zai.chat.completions.create({
-        messages: [
-          { role: 'assistant', content: 'You reply with exactly: OK' },
-          { role: 'user', content: 'ping' },
-        ],
-        thinking: { type: 'disabled' },
-      })
-      const text = completion.choices?.[0]?.message?.content || ''
-      return { ok: true, message: `Connected — model replied "${text.slice(0, 40)}"`, model: opts.model || 'glm-4.6' }
+    const providerMeta = PROVIDERS[opts.provider]
+    const base = (
+      opts.baseUrl ||
+      providerMeta?.baseUrl ||
+      'https://api.openai.com/v1'
+    ).replace(/\/$/, '')
+
+    const headers: Record<string, string> = {}
+    if (opts.apiKey) {
+      headers.Authorization = `Bearer ${opts.apiKey}`
     }
-    const base =
-      opts.provider === 'openai'
-        ? 'https://api.openai.com/v1'
-        : opts.provider === 'anthropic'
-          ? 'https://api.anthropic.com/v1'
-          : (opts.baseUrl || 'http://localhost:1234/v1').replace(/\/$/, '')
-    const res = await fetch(`${base}/models`, {
-      headers: opts.apiKey ? { Authorization: `Bearer ${opts.apiKey}` } : {},
-    })
+    if (opts.provider === 'openrouter') {
+      headers['HTTP-Referer'] = 'https://aetheria-studio.app'
+      headers['X-Title'] = 'Aetheria Studio'
+    }
+
+    const res = await fetch(`${base}/models`, { headers })
     if (!res.ok) {
+      // Fall back to a lightweight chat completion ping if /models returns 404/405
+      const pingRes = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...headers },
+        body: JSON.stringify({
+          model: opts.model || providerMeta?.defaultModels?.[0]?.id || 'gpt-4o',
+          messages: [{ role: 'user', content: 'hi' }],
+          max_tokens: 1,
+        }),
+      })
+
+      if (pingRes.ok) {
+        return {
+          ok: true,
+          message: 'Connection successful (verified via completion ping).',
+          model: opts.model,
+        }
+      }
+
       return { ok: false, message: `HTTP ${res.status}: ${res.statusText}` }
     }
     return { ok: true, message: 'Connection successful.', model: opts.model }

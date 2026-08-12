@@ -26,7 +26,7 @@ export function NavRail() {
         </div>
         {!leftCollapsed && (
           <div className="flex flex-col leading-none">
-            <span className="text-sm font-semibold tracking-tight">Halcyon</span>
+            <span className="text-sm font-semibold tracking-tight">Aetheria</span>
             <span className="text-[10px] text-muted-foreground">Character Studio</span>
           </div>
         )}

@@ -9,10 +9,14 @@ import { toast } from 'sonner'
 import {
   AlertCircle,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  Globe,
   KeyRound,
   Loader2,
   Lock,
   Plus,
+  RefreshCw,
   Star,
   Trash2,
   Zap,
@@ -156,14 +160,17 @@ export function ApiManager() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [draft, setDraft] = useState<ApiProfile | null>(null)
-  // apiKey is kept in a separate input state — the API never echoes it back.
-  // We just track the user's local keystrokes to optionally send on save.
   const [apiKeyInput, setApiKeyInput] = useState('')
+  const [showKey, setShowKey] = useState(false)
   const [draftKey, setDraftKey] = useState<string | null>(null)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
+  const [models, setModels] = useState<string[]>([])
+  const [modelsSource, setModelsSource] = useState<'api' | 'fallback' | null>(null)
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const modelsTokenRef = useRef(0)
 
   // Refs mirror state so the unmount cleanup can fire a final save.
   const dirtyRef = useRef(false)
@@ -206,12 +213,15 @@ export function ApiManager() {
               : p,
         )
       })
-      // After a save that included a new apiKey, clear the local input —
-      // the server now stores it and reports hasKey=true.
+      // After a save that included a new apiKey, mark hasKey as true
+      // but do NOT clear the local input — the user should still see their
+      // key in the text box. It will reset when they navigate to another profile.
       if (snapshotKey && snapshotKey.trim().length > 0) {
-        setApiKeyInput('')
-        apiKeyRef.current = ''
+        setDraft((prev) =>
+          prev ? { ...prev, hasKey: true } : prev,
+        )
       }
+
       setSaveState('saved')
       if (savedResetRef.current) clearTimeout(savedResetRef.current)
       savedResetRef.current = setTimeout(() => {
@@ -246,6 +256,76 @@ export function ApiManager() {
     [flush],
   )
 
+  // ---- Dynamic model fetching ----
+  // Fetches the provider's live model list (falling back to the built-in
+  // catalog when the provider doesn't expose /models). State is only updated
+  // asynchronously, after the request completes.
+  const fetchModels = useCallback(async () => {
+    if (!draft) return
+    const token = ++modelsTokenRef.current
+    try {
+      const body: Record<string, unknown> = {
+        provider: draft.provider,
+        baseUrl: draft.baseUrl ?? undefined,
+      }
+      if (apiKeyInput && apiKeyInput.trim().length > 0) {
+        body.apiKey = apiKeyInput
+      }
+      const res = await api<{ models: string[]; source: 'api' | 'fallback' }>(
+        `/api/api-profiles/${draft.id}/models`,
+        { method: 'POST', body: JSON.stringify(body) },
+      )
+      if (token !== modelsTokenRef.current) return
+      const list = res.models ?? []
+      setModels(list)
+      setModelsSource(res.source)
+    } catch {
+      if (token !== modelsTokenRef.current) return
+      setModels([])
+      setModelsSource('fallback')
+    }
+  }, [draft, apiKeyInput])
+
+  const refreshModels = useCallback(async () => {
+    if (!draft) return
+    setModelsLoading(true)
+    try {
+      await fetchModels()
+    } finally {
+      setModelsLoading(false)
+    }
+  }, [draft, fetchModels])
+
+  // Auto-fetch whenever the selected profile or its provider changes. The
+  // profile switch resets the local list in the render-time sync block, so a
+  // stale response is dropped via the token guard below.
+  useEffect(() => {
+    if (!draft) return
+    const profile = draft
+    const token = ++modelsTokenRef.current
+    const body: Record<string, unknown> = {
+      provider: profile.provider,
+      baseUrl: profile.baseUrl ?? undefined,
+    }
+    if (apiKeyInput && apiKeyInput.trim().length > 0) {
+      body.apiKey = apiKeyInput
+    }
+    api<{ models: string[]; source: 'api' | 'fallback' }>(
+      `/api/api-profiles/${profile.id}/models`,
+      { method: 'POST', body: JSON.stringify(body) },
+    )
+      .then((res) => {
+        if (token !== modelsTokenRef.current) return
+        setModels(res.models ?? [])
+        setModelsSource(res.source)
+      })
+      .catch(() => {
+        if (token !== modelsTokenRef.current) return
+        setModels([])
+        setModelsSource('fallback')
+      })
+  }, [draft?.id, draft?.provider])
+
   // Keep refs in sync for the unmount cleanup save.
   useEffect(() => {
     draftRef.current = draft
@@ -270,6 +350,8 @@ export function ApiManager() {
     apiKeyRef.current = ''
     setSaveState('idle')
     setTestResult(null)
+    setModels([])
+    setModelsSource(null)
   }
 
   // ---- Unmount cleanup: fire-and-forget the last pending save ----
@@ -300,7 +382,7 @@ export function ApiManager() {
     try {
       const created: ApiProfile = await api('/api/api-profiles', {
         method: 'POST',
-        body: JSON.stringify({ name: 'New API Profile', provider: 'zai' }),
+        body: JSON.stringify({ name: 'New API Profile', provider: 'openai', modelName: 'gpt-4o' }),
       })
       setProfiles((prev) => {
         const cur = (prev ?? []) as ApiProfile[]
@@ -339,6 +421,48 @@ export function ApiManager() {
       })
     }
   }, [selectedId, profiles, setProfiles])
+
+  // ---- Universal (all characters) selection ----
+  // "Select" marks the profile as the global default AND rebinds every
+  // existing chat to it. "Deselect" clears the global status.
+  const setUniversal = useCallback(
+    async (id: string, universal: boolean) => {
+      // Persist any pending autosave first so it can't race our PUT.
+      await flush()
+      try {
+        const updated: ApiProfile = await api(`/api/api-profiles/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            isDefault: universal,
+            applyToAllChats: universal,
+          }),
+        })
+        setProfiles((prev) => {
+          const cur = (prev ?? []) as ApiProfile[]
+          return cur.map((p) =>
+            p.id === id
+              ? { ...p, ...updated }
+              : universal
+                ? { ...p, isDefault: false }
+                : p,
+          )
+        })
+        setDraft((prev) =>
+          prev && prev.id === id ? { ...prev, ...updated } : prev,
+        )
+        toast.success(
+          universal
+            ? 'Profile selected for all characters'
+            : 'Profile deselected',
+        )
+      } catch (e) {
+        toast.error('Failed to update profile', {
+          description: (e as Error).message,
+        })
+      }
+    },
+    [flush, setProfiles],
+  )
 
   const runTest = useCallback(async () => {
     if (!draft) return
@@ -412,8 +536,8 @@ export function ApiManager() {
               </div>
               <CardTitle>No API profiles</CardTitle>
               <CardDescription>
-                API profiles configure how Halcyon talks to AI providers. The
-                built-in Z.AI Cloud profile works out of the box.
+                API profiles configure how Aetheria talks to AI providers. Add an
+                OpenAI, Anthropic, Google Gemini, Groq, or custom API key to begin.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -429,15 +553,15 @@ export function ApiManager() {
 
   const save = SAVE_LABEL[saveState]
   const isOnlyProfile = profiles.length <= 1
-  const providerMeta = draft ? PROVIDERS[draft.provider] ?? PROVIDERS.zai : PROVIDERS.zai
+  const providerMeta = draft ? PROVIDERS[draft.provider] ?? PROVIDERS.openai : PROVIDERS.openai
 
   return (
     <div className="flex h-full flex-col">
       <ViewHeader count={profiles.length} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-auto">
         {/* ---- List ---- */}
-        <aside className="flex w-80 shrink-0 flex-col border-r">
+        <aside className="flex w-80 shrink-0 flex-col border-r overflow-y-auto">
           <div className="border-b p-3">
             <Button
               onClick={createNew}
@@ -451,13 +575,13 @@ export function ApiManager() {
             <div className="flex flex-col gap-0.5 p-2">
               {profiles.map((p) => {
                 const selected = p.id === selectedId
-                const meta = PROVIDERS[p.provider] ?? PROVIDERS.zai
+                const meta = PROVIDERS[p.provider] ?? PROVIDERS.openai
                 return (
-                  <button
+                  <div
                     key={p.id}
                     onClick={() => selectProfile(p.id)}
                     className={cn(
-                      'group flex items-start gap-2 rounded-lg px-3 py-2.5 text-left transition-colors',
+                      'group flex cursor-pointer items-start gap-2 rounded-lg px-3 py-2.5 text-left transition-colors',
                       selected
                         ? 'bg-accent text-accent-foreground'
                         : 'hover:bg-accent/50',
@@ -499,7 +623,26 @@ export function ApiManager() {
                         </span>
                       </div>
                     </div>
-                  </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void setUniversal(p.id, !p.isDefault)
+                      }}
+                      className={cn(
+                        'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border transition-colors',
+                        p.isDefault
+                          ? 'border-amber-400/50 bg-amber-400/10 text-amber-500 hover:bg-amber-400/20'
+                          : 'border-transparent text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100',
+                      )}
+                      title={
+                        p.isDefault
+                          ? 'Deselect — stop using this profile across all characters'
+                          : 'Select — use this profile across all characters'
+                      }
+                    >
+                      <Globe className="h-3 w-3" />
+                    </button>
+                  </div>
                 )
               })}
             </div>
@@ -507,7 +650,7 @@ export function ApiManager() {
         </aside>
 
         {/* ---- Editor ---- */}
-        <section className="flex flex-1 flex-col overflow-hidden">
+        <section className="flex flex-1 flex-col overflow-auto">
           {draft ? (
             <>
               <div className="flex h-14 shrink-0 items-center gap-3 border-b px-4">
@@ -589,7 +732,7 @@ export function ApiManager() {
                           id="name"
                           value={draft.name}
                           onChange={(e) => update({ name: e.target.value })}
-                          placeholder="e.g. Z.AI Cloud, My OpenAI Key, Local LM Studio"
+                          placeholder="e.g. OpenAI Primary, My Groq Key, Local LM Studio"
                         />
                       </div>
                       <div className="flex items-center justify-between gap-4 rounded-lg border bg-muted/30 p-3">
@@ -611,6 +754,62 @@ export function ApiManager() {
                     </CardContent>
                   </Card>
 
+                  {/* Universal usage */}
+                  <Card className="gap-0 py-0">
+                    <CardHeader className="gap-0 px-5 pt-4 pb-3">
+                      <CardTitle className="text-sm">Universal Usage</CardTitle>
+                      <CardDescription className="text-xs">
+                        Use this profile across all characters and chats.
+                      </CardDescription>
+                    </CardHeader>
+                    <Separator />
+                    <CardContent className="space-y-3 p-5">
+                      <div className="flex items-center gap-2">
+                        {draft.isDefault ? (
+                          <Badge
+                            variant="secondary"
+                            className="gap-1 px-2 py-0.5 text-[10px]"
+                          >
+                            <Globe className="h-3 w-3" /> Currently universal
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="px-2 py-0.5 text-[10px] text-muted-foreground"
+                          >
+                            Not universal
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1.5"
+                          onClick={() => void setUniversal(draft.id, true)}
+                          disabled={draft.isDefault}
+                        >
+                          <Globe className="h-3.5 w-3.5" /> Select for all
+                          characters
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8 gap-1.5 text-destructive hover:text-destructive"
+                          onClick={() => void setUniversal(draft.id, false)}
+                          disabled={!draft.isDefault}
+                        >
+                          <Star className="h-3.5 w-3.5" /> Deselect
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Selecting rebinds every existing chat to this profile
+                        and makes it the default for new chats. Deselecting
+                        stops it from being the global profile.
+                      </p>
+                    </CardContent>
+                  </Card>
+
                   {/* Provider */}
                   <Card className="gap-0 py-0">
                     <CardHeader className="gap-0 px-5 pt-4 pb-3">
@@ -621,9 +820,14 @@ export function ApiManager() {
                       <Label htmlFor="provider">Provider</Label>
                       <Select
                         value={draft.provider}
-                        onValueChange={(v) =>
-                          update({ provider: v as ProviderType })
-                        }
+                        onValueChange={(v) => {
+                          const next = v as ProviderType
+                          const meta = PROVIDERS[next] ?? PROVIDERS.openai
+                          update({
+                            provider: next,
+                            modelName: meta.defaultModels[0]?.id ?? null,
+                          })
+                        }}
                       >
                         <SelectTrigger id="provider">
                           <SelectValue />
@@ -694,65 +898,121 @@ export function ApiManager() {
                                   </span>
                                 )}
                               </Label>
-                              <Input
-                                id="apiKey"
-                                type="password"
-                                value={apiKeyInput}
-                                onChange={(e) => updateApiKey(e.target.value)}
-                                placeholder={
-                                  draft.hasKey ? '••••••••••••' : 'sk-...'
-                                }
-                                autoComplete="off"
-                              />
+                              <div className="relative">
+                                <Input
+                                  id="apiKey"
+                                  type={showKey ? 'text' : 'password'}
+                                  value={apiKeyInput}
+                                  onChange={(e) => updateApiKey(e.target.value)}
+                                  placeholder={
+                                    draft.hasKey ? '••••••••••••••••' : 'Enter API key (e.g. sk-...)'
+                                  }
+                                  className="pr-10"
+                                  autoComplete="off"
+                                />
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setShowKey(!showKey)}
+                                  className="absolute right-0 top-0 h-full px-3 text-muted-foreground hover:text-foreground"
+                                  title={showKey ? 'Hide API key' : 'Show API key'}
+                                >
+                                  {showKey ? (
+                                    <EyeOff className="h-4 w-4" />
+                                  ) : (
+                                    <Eye className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </div>
                               {draft.hasKey && !apiKeyInput && (
-                                <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <KeyRound className="h-3 w-3" />
-                                  Key saved — leave blank to keep the existing
-                                  one.
+                                <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Key saved & hidden securely. Type a new key above to update.
                                 </p>
                               )}
-                              {!draft.hasKey &&
-                                providerMeta.needsApiKey && (
-                                  <p className="text-xs text-amber-600 dark:text-amber-500">
-                                    No key set yet. This provider requires an
-                                    API key.
-                                  </p>
-                                )}
+                              {!draft.hasKey && providerMeta.needsApiKey && (
+                                <p className="text-xs text-amber-600 dark:text-amber-500">
+                                  No key set yet. This provider requires an API key.
+                                </p>
+                              )}
+                              {providerMeta.apiKeyUrl && (
+                                <p className="text-xs text-muted-foreground">
+                                  Get your key at:{' '}
+                                  <a
+                                    href={providerMeta.apiKeyUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="underline hover:text-foreground"
+                                  >
+                                    {providerMeta.apiKeyUrl.replace(/^https?:\/\//, '')}
+                                  </a>
+                                </p>
+                              )}
                             </div>
                           )}
 
                           <div className="space-y-1.5">
-                            <Label htmlFor="model">Model</Label>
-                            <Input
-                              id="model"
-                              value={draft.modelName ?? ''}
-                              onChange={(e) =>
-                                update({ modelName: e.target.value })
-                              }
-                              placeholder="Model identifier"
-                            />
-                            {providerMeta.defaultModels.length > 0 && (
-                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                <span className="text-xs text-muted-foreground">
-                                  Quick pick:
-                                </span>
-                                {providerMeta.defaultModels.map((m) => (
-                                  <button
-                                    key={m.id}
-                                    type="button"
-                                    onClick={() => update({ modelName: m.id })}
-                                    className={cn(
-                                      'rounded-md border px-2 py-0.5 text-xs transition-colors hover:bg-accent',
-                                      draft.modelName === m.id
-                                        ? 'border-primary bg-primary/10 text-foreground'
-                                        : 'text-muted-foreground',
-                                    )}
-                                    title={`${m.name} · ${m.contextWindow.toLocaleString()} context`}
-                                  >
-                                    {m.name}
-                                  </button>
-                                ))}
-                              </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <Label htmlFor="model">Model</Label>
+                              <button
+                                type="button"
+                                onClick={() => void refreshModels()}
+                                disabled={modelsLoading}
+                                className="inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                              >
+                                <RefreshCw
+                                  className={cn(
+                                    'h-3 w-3',
+                                    modelsLoading && 'animate-spin',
+                                  )}
+                                />
+                                Refresh
+                              </button>
+                            </div>
+                            {(() => {
+                              const fallbackIds = providerMeta.defaultModels.map(
+                                (m) => m.id,
+                              )
+                              const modelIds =
+                                models.length > 0 ? models : fallbackIds
+                              const allModelIds =
+                                draft.modelName &&
+                                !modelIds.includes(draft.modelName)
+                                  ? [draft.modelName, ...modelIds]
+                                  : modelIds
+                              const effectiveModel =
+                                draft.modelName || allModelIds[0] || ''
+                              return (
+                                <Select
+                                  value={effectiveModel}
+                                  onValueChange={(v) =>
+                                    update({ modelName: v })
+                                  }
+                                >
+                                  <SelectTrigger id="model">
+                                    <SelectValue placeholder="Select model" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {allModelIds.map((m) => (
+                                      <SelectItem key={m} value={m}>
+                                        {m}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              )
+                            })()}
+                            {modelsSource === 'api' && (
+                              <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                Models fetched from the provider.
+                              </p>
+                            )}
+                            {modelsSource === 'fallback' && (
+                              <p className="text-xs text-muted-foreground">
+                                Provider didn&apos;t list models — showing the
+                                built-in catalog.
+                              </p>
                             )}
                           </div>
                         </>

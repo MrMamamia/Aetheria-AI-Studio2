@@ -60,7 +60,6 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Select,
   SelectContent,
@@ -333,14 +332,14 @@ export function SettingsView() {
   // ---- Inject animations-disable stylesheet once ----
   useEffect(() => {
     if (typeof document === 'undefined') return
-    const STYLE_ID = 'halcyon-animations-toggle'
+    const STYLE_ID = 'aetheria-animations-toggle'
     if (!document.getElementById(STYLE_ID)) {
       const style = document.createElement('style')
       style.id = STYLE_ID
       style.textContent = `
-        body:not(.halcyon-animations) *,
-        body:not(.halcyon-animations) *::before,
-        body:not(.halcyon-animations) *::after {
+        body:not(.aetheria-animations) *,
+        body:not(.aetheria-animations) *::before,
+        body:not(.aetheria-animations) *::after {
           animation: none !important;
           transition: none !important;
         }
@@ -353,9 +352,9 @@ export function SettingsView() {
   useEffect(() => {
     if (!loaded || typeof document === 'undefined') return
     if (settings.animations) {
-      document.body.classList.add('halcyon-animations')
+      document.body.classList.add('aetheria-animations')
     } else {
-      document.body.classList.remove('halcyon-animations')
+      document.body.classList.remove('aetheria-animations')
     }
   }, [settings.animations, loaded])
 
@@ -380,7 +379,7 @@ export function SettingsView() {
             Settings
           </h1>
           <p className="truncate text-xs text-muted-foreground">
-            Configure Halcyon to your liking.
+            Configure Aetheria to your liking.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -398,7 +397,7 @@ export function SettingsView() {
       <div className="flex flex-1 overflow-hidden">
         {/* ---------------- Sidebar ---------------- */}
         <aside className="flex w-[220px] shrink-0 flex-col border-r bg-muted/30">
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto">
             <div className="flex flex-col gap-0.5 p-2">
               {CATEGORIES.map((cat) => {
                 const Icon = cat.icon
@@ -435,12 +434,12 @@ export function SettingsView() {
                 )
               })}
             </div>
-          </ScrollArea>
+          </div>
         </aside>
 
         {/* ---------------- Content ---------------- */}
         <section className="flex min-w-0 flex-1 flex-col bg-background">
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl space-y-6 p-6">
               <div className="space-y-0.5">
                 <h2 className="text-lg font-semibold tracking-tight">
@@ -486,7 +485,7 @@ export function SettingsView() {
                 </>
               )}
             </div>
-          </ScrollArea>
+          </div>
         </section>
       </div>
     </div>
@@ -903,7 +902,7 @@ function ContextPanel({
     <div className="space-y-4">
       <SectionCard
         title="Context Window"
-        description="Configure the token budget Halcyon uses to assemble prompts."
+        description="Configure the token budget Aetheria uses to assemble prompts."
       >
         <SettingRow
           title="Default context size"
@@ -1082,7 +1081,7 @@ function AdvancedPanel({
         </CardHeader>
         <CardContent className="px-4 py-0">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Halcyon stores all data locally in SQLite via Prisma. API keys are
+            Aetheria stores all data locally in SQLite via Prisma. API keys are
             kept on this device only — they are never sent to any server other
             than the provider you configure. Use the Data tab to back up,
             restore, or wipe your local database.
@@ -1135,7 +1134,7 @@ function ShortcutsPanel() {
     <div className="space-y-4">
       <SectionCard
         title="Keyboard Shortcuts"
-        description="Halcyon is built for keyboard-first navigation. ⌘ = Cmd on macOS, Ctrl on Windows/Linux."
+        description="Aetheria is built for keyboard-first navigation. ⌘ = Cmd on macOS, Ctrl on Windows/Linux."
       >
         <div className="px-4 py-3">
           <div className="space-y-5">
@@ -1307,8 +1306,8 @@ function DataPanel() {
         settings,
       }
       const ts = new Date().toISOString().slice(0, 10)
-      downloadJSON(backup, `halcyon-backup-${ts}.json`)
-      appendLog(`Downloaded halcyon-backup-${ts}.json`)
+      downloadJSON(backup, `aetheria-backup-${ts}.json`)
+      appendLog(`Downloaded aetheria-backup-${ts}.json`)
       finishProgress(true)
     } catch (e) {
       appendLog(`✗ ${(e as Error).message}`)
@@ -1328,7 +1327,7 @@ function DataPanel() {
           !('characters' in raw && 'personas' in raw)
         ) {
           throw new Error(
-            'File does not look like a Halcyon backup (missing top-level keys).',
+            'File does not look like an Aetheria backup (missing top-level keys).',
           )
         }
         const backup = raw as BackupFile
@@ -1454,7 +1453,7 @@ function DataPanel() {
           try {
             const body: Record<string, unknown> = {
               name: p.name ?? 'Restored Profile',
-              provider: p.provider ?? 'zai',
+              provider: p.provider ?? 'openai',
               baseUrl: p.baseUrl ?? null,
               modelName: p.modelName ?? null,
               isDefault: false, // never auto-promote on restore
@@ -1693,7 +1692,7 @@ function DataPanel() {
         setProgressValue(Math.round((i / Math.max(1, list.length)) * 100))
       }
       const ts = new Date().toISOString().slice(0, 10)
-      downloadJSON(cards, `halcyon-characters-${ts}.json`)
+      downloadJSON(cards, `aetheria-characters-${ts}.json`)
       appendLog(`Downloaded ${cards.length} character cards`)
       finishProgress(true)
     } catch (e) {
@@ -2016,14 +2015,14 @@ function ProgressDialog({
 
         <Progress value={value} className="h-2" />
 
-        <ScrollArea className="max-h-[320px] rounded-md border bg-muted/40">
+        <div className="max-h-[320px] overflow-y-auto rounded-md border bg-muted/40">
           <div className="p-3">
             <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-foreground/90">
               {log.length === 0 ? 'Starting…' : log.join('\n')}
             </pre>
             <div ref={logEndRef} />
           </div>
-        </ScrollArea>
+        </div>
 
         <DialogFooter>
           <Button

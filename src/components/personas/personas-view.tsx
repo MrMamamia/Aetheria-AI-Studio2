@@ -11,10 +11,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
 import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Card,
   CardContent,
@@ -314,7 +320,7 @@ export function PersonasView() {
               <Plus /> New Persona
             </Button>
           </div>
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto">
             <div className="flex flex-col gap-0.5 p-2">
               {personas.map((p) => {
                 const selected = p.id === selectedId
@@ -364,7 +370,7 @@ export function PersonasView() {
                 )
               })}
             </div>
-          </ScrollArea>
+          </div>
         </aside>
 
         {/* ---- Editor ---- */}
@@ -429,7 +435,7 @@ export function PersonasView() {
                 </div>
               </div>
 
-              <ScrollArea className="flex-1">
+              <div className="flex-1 overflow-y-auto">
                 <div className="mx-auto max-w-4xl space-y-8 p-6">
                   {/* Identity */}
                   <section className="space-y-4">
@@ -569,7 +575,7 @@ export function PersonasView() {
                     </div>
                   </section>
                 </div>
-              </ScrollArea>
+              </div>
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center p-6 text-center">
