@@ -351,3 +351,18 @@ Work Log:
 
 Stage Summary:
 - Application is fully functional end-to-end. Z.AI Cloud provider works out-of-the-box. All SillyTavern-inspired power features (characters, personas, lorebooks, presets, API manager, context pipeline, prompt inspector, memory, branching, debug mode) are implemented and verified.
+
+---
+Task ID: 19
+Agent: main
+Task: Fix 404 on "Test Connection" button in API Manager (failing for every provider).
+
+Work Log:
+- User reported the "Test Connection" button in the API Manager returns 404 for every provider (OpenRouter, Groq, etc.).
+- Diagnosed root cause: the frontend (`src/components/api/api-manager.tsx:484`) POSTs to `/api/api-profiles/${draft.id}/test`, but the route file `/src/app/api/api-profiles/[id]/test/route.ts` did not exist. Only `[id]/route.ts` and `[id]/models/route.ts` existed. The `testConnection()` helper existed in `src/lib/ai-runtime.ts` (lines 202-253) but was never wired to an HTTP endpoint.
+- Created `/src/app/api/api-profiles/[id]/test/route.ts` mirroring the `models/route.ts` pattern: loads stored profile by id, falls back to stored apiKey/baseUrl/provider/model when not supplied in body, invokes `testConnection()`, returns its `{ ok, message, model? }` result as JSON with HTTP 200 (so failed *tests* surface in the UI rather than throwing as transport errors). Only returns non-2xx for "profile not found" (404) or unexpected server errors (500).
+- Verified: `bun run lint` clean. Imports (`db`, `testConnection`, `ProviderType`) all resolve. Dev server running, Next.js 16 will auto-discover the new route file.
+
+Stage Summary:
+- Single missing-file bug. Root cause was an endpoint the frontend was already calling but that had never been created — explains why it 404'd on every provider regardless of config. `testConnection()` logic itself was already correct (hits `${baseUrl}/models`, falls back to a `/chat/completions` ping with max_tokens=1).
+- Fix is live; user should retry "Test Connection" in the API Manager.
