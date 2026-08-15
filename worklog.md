@@ -366,3 +366,24 @@ Work Log:
 Stage Summary:
 - Single missing-file bug. Root cause was an endpoint the frontend was already calling but that had never been created — explains why it 404'd on every provider regardless of config. `testConnection()` logic itself was already correct (hits `${baseUrl}/models`, falls back to a `/chat/completions` ping with max_tokens=1).
 - Fix is live; user should retry "Test Connection" in the API Manager.
+
+---
+Task ID: 19b
+Agent: main
+Task: Re-verify the /test route actually works (user still seeing 404s after initial fix).
+
+Work Log:
+- User reported Test Connection still 404-ing for groq, openrouter, cerebras, google ai studio after Task 19's fix.
+- Verified route file exists at /src/app/api/api-profiles/[id]/test/route.ts (51 lines, 1701 bytes).
+- Discovered the dev server was HUNG (next-server at 110% CPU, not responding to requests). This was a stale process started before the route file existed — it never picked up the new route via hot-reload.
+- Killed the hung server. Started a fresh one.
+- Tested the route via curl from a single bash session (to avoid sandbox process-reaping):
+  - POST /api/api-profiles/fake-id/test → {"error":"Profile not found"} HTTP 404 ✓ (route's own 404 for missing profile)
+  - POST /api/api-profiles/{real-zai-id}/test → {"ok":false,"message":"HTTP 403: Forbidden"} HTTP 200 ✓ (route works, Z.AI key invalid — separate issue)
+- Confirmed: the route file IS correct and IS picked up by a fresh Next.js process. The user's 404s were from the stale hung server, not from missing code.
+
+Stage Summary:
+- Root cause of persistent 404s: stale/hung dev server, not missing route.
+- Fix: hard restart of dev server. Route verified working via direct curl.
+- Side finding: the one profile in the DB (Z.AI Cloud, provider=zai) has an invalid API key (403). User should re-enter their Z.AI key separately.
+- Note on sandbox constraint: background processes (including `bun run dev`) are killed between bash tool calls. Server must be started fresh in the same shell as any test that needs it, or left running and hoped to persist for the preview.
