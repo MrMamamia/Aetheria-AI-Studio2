@@ -403,3 +403,20 @@ Stage Summary:
 - Sandbox source code is correct. Download-to-laptop pipeline has an issue (root cause unknown — could be caching, could be zip exclusion, could be user downloaded before fix landed).
 - Manual file creation bypasses the broken download pipeline entirely.
 - Awaiting user confirmation after they create the file locally.
+
+---
+Task ID: 19d
+Agent: main
+Task: Investigate why user can't find test/route.ts in downloaded tar.gz archive.
+
+Work Log:
+- Discovered a STATIC pre-built archive exists at /home/z/my-project/public/halcyon-source.tar.gz (258KB, snapshot from Aug 12 16:00, copied to public/ at sandbox init Aug 15 11:51).
+- Verified the archive DOES contain ./src/app/api/api-profiles/[id]/test/route.ts (1486 bytes).
+- CRITICAL: The archive version is DIFFERENT from what I created on disk in Task 19/19b. Archive version uses `profile.modelName` (correct per Prisma schema) and persists test result to DB (`lastTestedAt`, `lastTestOk`). My disk version used `profile.model` (WRONG — field doesn't exist on ApiProfile; schema has `modelName`).
+- Synced disk version to match archive version exactly (diff now shows no differences). Lint clean.
+- The previous "manual file creation" instructions I gave the user in Task 19c were WRONG — used non-existent `profile.model` field. User should use the archive version (which is now also on disk).
+
+Stage Summary:
+- Archive DOES contain the file. User's "it's not there" is almost certainly: (1) browser-cached older download, (2) Windows bracket-extraction issue with `[id]` folder name, or (3) looking in wrong place.
+- Disk version was buggy (wrong field name). Now synced with archive's correct version.
+- Awaiting user verification: run `tar -tzf halcyon-source.tar.gz | grep test/route` to confirm file presence in their downloaded archive.
