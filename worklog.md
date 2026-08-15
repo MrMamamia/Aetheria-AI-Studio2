@@ -387,3 +387,19 @@ Stage Summary:
 - Fix: hard restart of dev server. Route verified working via direct curl.
 - Side finding: the one profile in the DB (Z.AI Cloud, provider=zai) has an invalid API key (403). User should re-enter their Z.AI key separately.
 - Note on sandbox constraint: background processes (including `bun run dev`) are killed between bash tool calls. Server must be started fresh in the same shell as any test that needs it, or left running and hoped to persist for the preview.
+
+---
+Task ID: 19c
+Agent: main
+Task: User on laptop still getting HTML 404 for /test endpoint after re-download.
+
+Work Log:
+- User tested Test Connection on their LOCAL laptop copy (E:/Aetheria/) for 4 providers (OpenRouter, Groq, Cerebras, Google Gemini). All returned HTTP 404 with Content-Type: text/html, ~22KB response size.
+- This response signature = Next.js built-in 404 HTML page, NOT my route's JSON 404 (`{"error":"Profile not found"}` would be application/json, ~30 bytes).
+- Conclusion: the route file is in the sandbox source (verified: /home/z/my-project/src/app/api/api-profiles/[id]/test/route.ts, 1701 bytes, mtime Aug 15 11:52 UTC), but is NOT making it into the user's downloaded ZIP. Either they downloaded before 11:52, or the download mechanism is caching, or the file isn't being packaged for some reason.
+- Bypass solution: gave user the exact file contents and path (E:\Aetheria\src\app\api\api-profiles\[id]\test\route.ts) to create manually. No restart needed (Turbopack hot-reloads new route files).
+
+Stage Summary:
+- Sandbox source code is correct. Download-to-laptop pipeline has an issue (root cause unknown — could be caching, could be zip exclusion, could be user downloaded before fix landed).
+- Manual file creation bypasses the broken download pipeline entirely.
+- Awaiting user confirmation after they create the file locally.
