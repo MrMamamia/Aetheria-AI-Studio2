@@ -260,10 +260,10 @@ function GenerationTab({ chat, personas, presets, apiProfiles, onUpdate }: {
     <div className="space-y-4">
       <div className="space-y-2">
         <Label className="text-xs font-medium">Persona</Label>
-        <Select value={chat.personaId || ''} onValueChange={(v) => onUpdate({ personaId: v || null })}>
+        <Select value={chat.personaId || '__none__'} onValueChange={(v) => onUpdate({ personaId: v === '__none__' ? null : v })}>
           <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Default persona" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">None</SelectItem>
+            <SelectItem value="__none__">None</SelectItem>
             {personas.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}{p.isDefault && ' (default)'}</SelectItem>)}
           </SelectContent>
         </Select>

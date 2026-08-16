@@ -33,7 +33,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     if (body.provider !== undefined) {
       data.provider = body.provider
       const capSource =
-        PROVIDERS[body.provider as ProviderTypeT] || PROVIDERS.openai
+        PROVIDERS[body.provider as ProviderTypeT] || PROVIDERS.zai
       if (body.capabilities === undefined) {
         data.capabilities = stringifyJson(capSource.capabilities)
       }
@@ -48,7 +48,6 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     }
     if (body.isDefault !== undefined) data.isDefault = Boolean(body.isDefault)
 
-    // apiKey: if undefined or empty string -> keep existing. If provided -> update.
     if (body.apiKey && String(body.apiKey).trim().length > 0) {
       data.apiKey = String(body.apiKey)
     }
@@ -60,13 +59,7 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
           data: { isDefault: false },
         })
       }
-      const result = await tx.apiProfile.update({ where: { id }, data })
-      // "Select" from the API Manager: rebind every existing chat to this
-      // profile so it is used universally across all characters.
-      if (body.isDefault === true && body.applyToAllChats === true) {
-        await tx.chat.updateMany({ data: { apiProfileId: id } })
-      }
-      return result
+      return tx.apiProfile.update({ where: { id }, data })
     })
 
     return NextResponse.json(stripApiKey(updated))

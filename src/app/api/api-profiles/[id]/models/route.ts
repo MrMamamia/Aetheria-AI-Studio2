@@ -13,7 +13,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
     const { id } = await ctx.params
     const body = await req.json().catch(() => ({}))
 
-    // Load the stored profile so we can fall back to its stored key and URL.
     const profile = await db.apiProfile.findUnique({ where: { id } })
     if (!profile) {
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
@@ -30,7 +29,6 @@ export async function POST(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ models: fetched, source: 'api' })
     }
 
-    // The provider doesn't expose /models — fall back to the built-in list.
     const meta = PROVIDERS[provider] || PROVIDERS.openai
     return NextResponse.json({
       models: meta.defaultModels.map((m) => m.id),

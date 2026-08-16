@@ -826,7 +826,7 @@ export function ApiManager() {
                           const meta = PROVIDERS[next] ?? PROVIDERS.openai
                           update({
                             provider: next,
-                            modelName: meta.defaultModels[0]?.id ?? null,
+                            modelName: null,
                           })
                         }}
                       >
@@ -982,8 +982,7 @@ export function ApiManager() {
                                 !modelIds.includes(draft.modelName)
                                   ? [draft.modelName, ...modelIds]
                                   : modelIds
-                              const effectiveModel =
-                                draft.modelName || allModelIds[0] || ''
+                              const effectiveModel = draft.modelName || ''
                               return (
                                 <Select
                                   value={effectiveModel}
